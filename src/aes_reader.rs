@@ -1,6 +1,6 @@
 use aes::Aes256;
 use cbc::cipher::{BlockDecryptMut, KeyIvInit};
-use generic_array::GenericArray;
+use cbc::cipher::generic_array::GenericArray;
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
 use sha2::Sha256;
