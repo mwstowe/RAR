@@ -1,9 +1,11 @@
-#[macro_use]
-extern crate failure;
-#[macro_use]
-extern crate nom;
+extern crate aes;
+extern crate anyhow;
+extern crate cbc;
 extern crate chrono;
-extern crate crypto;
+extern crate hmac;
+extern crate nom;
+extern crate pbkdf2;
+extern crate sha2;
 
 #[cfg(test)]
 #[macro_use]
@@ -24,7 +26,7 @@ mod vint;
 
 const BUFFER_SIZE: usize = 8192;
 
-use failure::Error;
+use anyhow::Error;
 use rar_reader::RarReader;
 use std::fs::File;
 use std::io::Read;
@@ -44,18 +46,18 @@ impl Archive {
     /// structure as additional information
     pub fn extract_all(file_name: &str, path: &str, password: &str) -> Result<Archive, Error> {
         // Open a file reader
-        let reader = File::open(&file_name)?;
+        let reader = File::open(file_name)?;
         // initilize the buffer
         let mut reader = RarReader::new_from_file(reader);
 
         // try to parse the signature
         let version = reader
             .exec_nom_parser(sig_block::SignatureBlock::parse)
-            .map_err(|_| format_err!("Can't read RAR signature"))?;
+            .map_err(|_| anyhow::anyhow!("Can't read RAR signature"))?;
         // try to parse the archive information
         let details = reader
             .exec_nom_parser(archive_block::ArchiveBlock::parse)
-            .map_err(|_| format_err!("Can't read RAR archive block"))?;
+            .map_err(|_| anyhow::anyhow!("Can't read RAR archive block"))?;
 
         let mut files = vec![];
         let mut quick_open = None;
@@ -85,7 +87,7 @@ impl Archive {
                         reader = extractor::continue_data_next_file(
                             reader,
                             &mut f,
-                            &file_name,
+                            file_name,
                             &mut file_number,
                             &mut data_area_size,
                         )?;
@@ -106,7 +108,7 @@ impl Archive {
         // Get the end block
         let end = reader
             .exec_nom_parser(end_block::EndBlock::parse)
-            .map_err(|_| format_err!("Can't read RAR end"))?;
+            .map_err(|_| anyhow::anyhow!("Can't read RAR end"))?;
 
         // return the archive information
         Ok(Archive {
@@ -122,10 +124,10 @@ impl Archive {
 /********************** All .rar file test **********************/
 #[cfg(test)]
 mod tests {
-    use sig_block::SignatureBlock;
+    use crate::sig_block::SignatureBlock;
+    use crate::Archive;
     use std::fs::{remove_dir_all, File};
     use std::io::Read;
-    use Archive;
 
     // Small helper function to read a file
     fn read_file(path: &str) -> Vec<u8> {

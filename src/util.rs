@@ -22,7 +22,6 @@ fn test_get_bit_at() {
 /// This is usefull if you need to have bytes again out of an
 /// vint
 pub fn split_u64(x: u64) -> [u8; 8] {
-    let x = x.clone();
     let b1: u8 = ((x >> 56) & 0xff) as u8;
     let b2: u8 = ((x >> 48) & 0xff) as u8;
     let b3: u8 = ((x >> 40) & 0xff) as u8;
@@ -31,7 +30,7 @@ pub fn split_u64(x: u64) -> [u8; 8] {
     let b6: u8 = ((x >> 16) & 0xff) as u8;
     let b7: u8 = ((x >> 8) & 0xff) as u8;
     let b8: u8 = (x & 0xff) as u8;
-    return [b1, b2, b3, b4, b5, b6, b7, b8];
+    [b1, b2, b3, b4, b5, b6, b7, b8]
 }
 #[test]
 fn test_split_u64() {

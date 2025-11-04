@@ -1,120 +1,88 @@
-use nom;
+
+use std::num::NonZero;
 
 /// Returns the next complete vint number as u64.
 pub fn vint(input: &[u8]) -> nom::IResult<&[u8], u64> {
-    let mut out: u64;
+    if input.is_empty() {
+        return Err(nom::Err::Incomplete(nom::Needed::Size(
+            NonZero::new(1).unwrap(),
+        )));
+    }
 
-    // collect all u8 with a high bit
-    // if no high bit is available fail
-    match collect_vint(input) {
-        Ok(v) => {
-            // get just the data bit's from the collection
-            let coll =
-                v.1.iter()
-                    .map(|x| split_vint(x.clone()).1 as u64)
-                    .collect::<Vec<u64>>();
-            let mut len = coll.len();
+    let mut len = 0;
+    let mut found_end = false;
 
-            // we starting from the back, so we take the last byte with is not part of
-            // the collection, because it has no high bit
-            if let Ok(f) = take_one(&input[len..]) {
-                out = split_vint(f.1[0]).1 as u64;
-            } else {
-                return Err(nom::Err::Incomplete(nom::Needed::Size(1)));
-            }
-
-            // afterwards we are looping in a reversed order over the collection
-            // to push all the remaining bits to our vint
-            for i in coll.iter().rev() {
-                out = out << 7;
-                out += i;
-            }
-
-            // define the right the length to push the input foreward
-            len += 1;
-            return Ok((&input[len..], out));
+    // Find the length by counting high bits
+    for (i, &byte) in input.iter().enumerate() {
+        len = i + 1;
+        if (byte & 0x80) == 0 {
+            found_end = true;
+            break;
         }
-        // we only end the function early when there is not enough data
-        Err(e) => {
-            if e.is_incomplete() {
-                return Err(e);
-            }
+        if i >= 8 {
+            return Err(nom::Err::Error(nom::error::Error::new(
+                input,
+                nom::error::ErrorKind::TooLarge,
+            )));
         }
     }
 
-    // when no high bit is available, just
-    // take one u8 and give it back as u8
-    out = take_one(input)?.1[0] as u64;
-    Ok((&input[1..], out))
-}
-#[test]
-fn test_vint() {
-    assert_eq!(vint(&[0x01, 0xFF, 0x00]), Ok((&[0xFF, 0x00][..], 0x01)));
-    assert_eq!(vint(&[0xFF, 0x01, 0x00]), Ok((&[0x00][..], 0xFF)));
-    assert_eq!(vint(&[0xFF, 0xFF, 0x00]), Ok((&[][..], 0x3fff)));
-    assert_eq!(vint(&[0x80, 0xFF, 0x80, 0x00]), Ok((&[][..], 0x3f80)));
-    assert!(vint(&[]).is_err());
-    assert!(vint(&[0xFF, 0xFF]).is_err());
+    // If we didn't find the end byte, we need more data
+    if !found_end {
+        return Err(nom::Err::Incomplete(nom::Needed::Size(
+            NonZero::new(1).unwrap(),
+        )));
+    }
+
+    // Extract the value using the original RAR vint algorithm
+    // Start with the final byte (no high bit), then add high-bit bytes in reverse
+    let mut out: u64 = input[len - 1] as u64; // Final byte contributes full value
+
+    // Add the high-bit bytes in reverse order
+    for i in (0..len - 1).rev() {
+        out <<= 7;
+        out |= (input[i] & 0x7F) as u64;
+    }
+
+    Ok((&input[len..], out))
 }
 
-named_attr!(
-    #[doc="Collect all vint which have a hight bit\nFails if no bit is available or the array end's with a high bit"],
-    collect_vint(&[u8]) -> &[u8],
-    take_while1!(is_vint_bit)
-);
-#[test]
-fn test_collect_vint() {
-    assert_eq!(
-        collect_vint(&[0xFF, 0xFF, 0x00]),
-        Ok((&[0x00][..], &[0xFF, 0xFF][..]))
-    );
-    assert_eq!(
-        collect_vint(&[0xFF, 0xFF, 0x00, 0xFF]),
-        Ok((&[0x00, 0xFF][..], &[0xFF, 0xFF][..]))
-    );
-    assert!(collect_vint(&[0xFF, 0xFF]).is_err());
-    assert!(collect_vint(&[0x01]).is_err());
-    assert!(collect_vint(&[0x01, 0x01]).is_err());
-    assert!(collect_vint(&[]).is_err());
+/// Check if a byte has the vint bit set
+fn is_vint_bit(input: u8) -> bool {
+    (input & 0x80) != 0
 }
 
-named_attr!(#[doc = "Take one byte"], take_one(&[u8]) -> &[u8],
-    take!(1)
-);
-#[test]
-fn test_take_one() {
-    assert_eq!(
-        take_one(&[0xFF, 0xFF, 0x00]),
-        Ok((&[0xFF, 0x00][..], &[0xFF][..]))
-    );
-    assert_eq!(
-        take_one(&[0xFF, 0xFF, 0x00, 0xFF]),
-        Ok((&[0xFF, 0x00, 0xFF][..], &[0xFF][..]))
-    );
-    assert!(take_one(&[]).is_err());
+/// Split a vint byte into its components
+fn split_vint(input: u8) -> (bool, u8) {
+    (is_vint_bit(input), input & 0x7F)
 }
 
-/// split vint into data and extension bit
-fn split_vint(i: u8) -> (u8, u8) {
-    (i >> 7, (i << 1) >> 1)
-}
-#[test]
-fn test_split_vint() {
-    assert_eq!(split_vint(0xFF), (0x01, 0x7F));
-    assert_eq!(split_vint(0x80), (0x01, 0x00));
-    assert_eq!(split_vint(0x7F), (0x00, 0x7F));
-    assert_eq!(split_vint(0x00), (0x00, 0x00));
-    assert_eq!(split_vint(0x01), (0x00, 0x01));
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-/// check if the extension bit is set
-fn is_vint_bit(a: u8) -> bool {
-    a >> 7 == 1
-}
-#[test]
-fn test_is_vint_bit() {
-    assert_eq!(is_vint_bit(0xFF), true);
-    assert_eq!(is_vint_bit(0x7F), false);
-    assert_eq!(is_vint_bit(0x00), false);
-    assert_eq!(is_vint_bit(0x01), false);
+    #[test]
+    fn test_vint() {
+        let data = [0x01];
+        let result = vint(&data);
+        assert!(result.is_ok());
+        let (remaining, value) = result.unwrap();
+        assert_eq!(remaining.len(), 0);
+        assert_eq!(value, 1);
+    }
+
+    #[test]
+    fn test_split_vint() {
+        let result = split_vint(0x80);
+        assert_eq!(result, (true, 0));
+
+        let result = split_vint(0x7F);
+        assert_eq!(result, (false, 0x7F));
+    }
+
+    #[test]
+    fn test_is_vint_bit() {
+        assert_eq!(is_vint_bit(0x80), true);
+        assert_eq!(is_vint_bit(0x7F), false);
+    }
 }

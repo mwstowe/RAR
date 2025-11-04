@@ -1,8 +1,8 @@
-use nom;
-use nom::be_u32;
+use crate::util::get_bit_at;
+use crate::vint::vint;
+
+use nom::number::complete::be_u32;
 use std::convert::From;
-use util::get_bit_at;
-use vint::vint;
 
 /// general Header valid for all rar blocks
 #[derive(PartialEq, Debug, Clone, Default)]
@@ -64,13 +64,14 @@ fn test_header() {
 }
 
 /// Definition of the header block typ
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, Default)]
 pub enum Typ {
     MainArchive,
     File,
     Service,
     Encryption,
     EndArchive,
+    #[default]
     Unknown,
 }
 
@@ -87,11 +88,7 @@ impl From<u64> for Typ {
     }
 }
 
-impl Default for Typ {
-    fn default() -> Typ {
-        Typ::Unknown
-    }
-}
+
 
 /// Flags for a header block
 #[derive(PartialEq, Debug, Clone, Default)]
@@ -149,22 +146,27 @@ impl From<u64> for Flags {
     }
 }
 
-named_attr!(#[doc = "Get a base header"], base_header(&[u8]) -> HeadBlock,
-    do_parse!(
-        crc: be_u32 >>
-        size: vint >>
-        typ: vint >>
-        flags: vint >>
-        (HeadBlock::new(crc, size, typ.into(), flags.into()))
-    )
-);
-#[test]
-fn test_base_header() {
-    let data = [0xF3, 0xE1, 0x82, 0xEB, 0x0B, 0x01, 0x05, 0x07];
+/// Get a base header
+fn base_header(input: &[u8]) -> nom::IResult<&[u8], HeadBlock> {
+    let (input, crc) = be_u32(input)?;
+    let (input, size) = vint(input)?;
+    let (input, typ) = vint(input)?;
+    let (input, flags) = vint(input)?;
+    Ok((input, HeadBlock::new(crc, size, typ.into(), flags.into())))
+}
 
-    let mut flags = Flags::new();
-    flags.extra_area = true;
-    flags.skip = true;
-    let header = HeadBlock::new(4091642603, 11, Typ::MainArchive, flags);
-    assert_eq!(base_header(&data), Ok((&[0x07][..], header)));
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_base_header() {
+        let data = [0xF3, 0xE1, 0x82, 0xEB, 0x0B, 0x01, 0x05, 0x07];
+
+        let mut flags = Flags::new();
+        flags.extra_area = true;
+        flags.skip = true;
+        let header = HeadBlock::new(4091642603, 11, Typ::MainArchive, flags);
+        assert_eq!(base_header(&data), Ok((&[0x07][..], header)));
+    }
 }

@@ -1,4 +1,4 @@
-use file_block::FileBlock;
+use crate::file_block::FileBlock;
 use std::fs;
 use std::io::{BufWriter, Result, Write};
 
@@ -35,7 +35,7 @@ impl Write for FileWriter {
         let mut len = (self.file.unpacked_size - self.bytes_written) as usize;
 
         // when no data needs to be written anymore return 0
-        if len <= 0 {
+        if len == 0 {
             return Ok(0);
         }
 
@@ -56,8 +56,8 @@ impl Write for FileWriter {
 
 #[cfg(test)]
 mod tests {
-    use file_block::FileBlock;
-    use file_writer::FileWriter;
+    use crate::file_block::FileBlock;
+    use crate::file_writer::FileWriter;
     use std::fs::{remove_dir_all, File};
     use std::io::{ErrorKind, Read, Write};
 

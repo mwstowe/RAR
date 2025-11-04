@@ -1,9 +1,11 @@
-use extra_block::ExtraAreaBlock;
-use head_block::HeadBlock;
-use nom;
-use nom::be_u32;
-use util::{get_bit_at, split_u64, to_bool};
-use vint::vint;
+use crate::extra_block::{ExtraAreaBlock, FileTimeBlock};
+use crate::head_block::{Flags, HeadBlock, Typ};
+use crate::util::{get_bit_at, split_u64, to_bool};
+use crate::vint::vint;
+
+use nom::bytes::complete::take;
+use nom::error::ErrorKind;
+use nom::number::complete::be_u32;
 
 /// FileBlock
 #[derive(PartialEq, Debug, Clone, Default)]
@@ -28,8 +30,11 @@ impl FileBlock {
         let (input, head) = HeadBlock::parse(inp)?;
 
         // check if the defined type is archive header
-        if head.typ != ::head_block::Typ::File && head.typ != ::head_block::Typ::Service {
-            return Err(nom::Err::Error(error_position!(inp, nom::ErrorKind::IsNot)));
+        if head.typ != Typ::File && head.typ != Typ::Service {
+            return Err(nom::Err::Error(nom::error::Error::new(
+                inp,
+                ErrorKind::Verify,
+            )));
         }
 
         // get the flags
@@ -57,8 +62,8 @@ impl FileBlock {
             attributes,
             mtime: 0,
             data_crc: 0,
-            compression: compression,
-            creation_os: OsFlags::UNKNOWN,
+            compression,
+            creation_os: OsFlags::Unknown,
             name_len: 0,
             name: "".into(),
             extra: eab,
@@ -87,12 +92,12 @@ impl FileBlock {
         let (input, nlen) = vint(input)?;
         file.name_len = nlen;
 
-        let (mut input, n) = take_str!(input, file.name_len)?;
-        file.name = n.into();
+        let (mut input, n) = take(file.name_len as usize)(input)?;
+        file.name = std::str::from_utf8(n).unwrap_or("").into();
 
         // check for a extra area
         if file.head.flags.extra_area {
-            let (i, extra) = take!(input, file.head.extra_area_size)?;
+            let (i, extra) = take(file.head.extra_area_size as usize)(input)?;
             input = i;
             file.extra = ExtraAreaBlock::parse(extra)?.1;
         }
@@ -113,7 +118,7 @@ fn test_archive() {
         0x66,
     ];
 
-    let mut flags = ::head_block::Flags::new();
+    let mut flags = Flags::new();
     flags.extra_area = true;
     flags.data_area = true;
 
@@ -128,7 +133,7 @@ fn test_archive() {
     file_flag.crc = true;
 
     let eab = ExtraAreaBlock {
-        file_time: Some(::extra_block::FileTimeBlock {
+        file_time: Some(FileTimeBlock {
             modification_time: Some(
                 NaiveDateTime::parse_from_str("2018-05-23 10:02:11", "%Y-%m-%d %H:%M:%S").unwrap(),
             ),
@@ -139,14 +144,14 @@ fn test_archive() {
     };
 
     let mut arc = FileBlock {
-        head: HeadBlock::new(2349697250, 36, ::head_block::Typ::File, flags),
+        head: HeadBlock::new(2349697250, 36, Typ::File, flags),
         flags: file_flag,
         unpacked_size: 2118,
         attributes: 32,
         mtime: 0,
         data_crc: 2482150091,
         compression,
-        creation_os: OsFlags::WINDOWS,
+        creation_os: OsFlags::Windows,
         name_len: 8,
         name: "text.txt".into(),
         extra: eab,
@@ -167,7 +172,7 @@ fn test_archive_png() {
         0x44, 0xD2, 0x01, 0xFF, 0xD8, 0xFF, 0xE1, 0x00, 0x18, 0x45,
     ];
 
-    let mut flags = ::head_block::Flags::new();
+    let mut flags = Flags::new();
     flags.extra_area = true;
     flags.data_area = true;
 
@@ -182,7 +187,7 @@ fn test_archive_png() {
     file_flag.crc = true;
 
     let eab = ExtraAreaBlock {
-        file_time: Some(::extra_block::FileTimeBlock {
+        file_time: Some(FileTimeBlock {
             modification_time: Some(
                 NaiveDateTime::parse_from_str("2016-11-22 11:42:49", "%Y-%m-%d %H:%M:%S").unwrap(),
             ),
@@ -193,14 +198,14 @@ fn test_archive_png() {
     };
 
     let mut arc = FileBlock {
-        head: HeadBlock::new(1002517598, 43, ::head_block::Typ::File, flags),
+        head: HeadBlock::new(1002517598, 43, Typ::File, flags),
         flags: file_flag,
         unpacked_size: 2149083,
         attributes: 32,
         mtime: 0,
         data_crc: 2494669946,
         compression,
-        creation_os: OsFlags::WINDOWS,
+        creation_os: OsFlags::Windows,
         name_len: 9,
         name: "photo.jpg".into(),
         extra: eab,
@@ -242,30 +247,27 @@ impl From<u64> for FileFlags {
 }
 
 /// OS flags
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, Default)]
 pub enum OsFlags {
-    WINDOWS,
-    UNIX,
-    UNKNOWN,
+    Windows,
+    Unix,
+    #[default]
+    Unknown,
 }
 
 impl From<u64> for OsFlags {
     fn from(i: u64) -> Self {
         if i == 0 {
-            return OsFlags::WINDOWS;
+            return OsFlags::Windows;
         }
-        if i == 0 {
-            return OsFlags::UNIX;
+        if i == 1 {
+            return OsFlags::Unix;
         }
-        OsFlags::UNKNOWN
+        OsFlags::Unknown
     }
 }
 
-impl Default for OsFlags {
-    fn default() -> OsFlags {
-        OsFlags::UNKNOWN
-    }
-}
+
 
 /// Compression dataset
 #[derive(PartialEq, Debug, Clone, Default)]
@@ -287,25 +289,23 @@ impl Compression {
 
         // get the data from the compression
         // !!!!!! THIS IS PROBABLY WRONG !!!!!!
-        let c = bits!(
-            clean,
-            do_parse!(
-                dictonary: take_bits!(u8, 4)
-                    >> flag: take_bits!(u8, 4)
-                    >> solid: take_bits!(u8, 1)
-                    >> version: take_bits!(u8, 6)
-                    >> (Compression {
-                        version,
-                        solid: to_bool(solid),
-                        flag: flag.into(),
-                        dictonary
-                    })
-            )
-        );
+        let c = if !clean.is_empty() {
+            let byte = clean[0];
+            Ok((
+                &clean[1..],
+                Compression {
+                    version: (byte >> 2) & 0x3F,
+                    solid: to_bool((byte >> 1) & 0x01),
+                    flag: ((byte >> 4) & 0x0F).into(),
+                    dictonary: byte & 0x0F,
+                },
+            ))
+        } else {
+            Err(nom::Err::Error(nom::error::Error::new(inp, ErrorKind::Eof)))
+        };
 
         // change the error to an inp error and not and bit matchign error
-        let c =
-            c.map_err(|_| nom::Err::Error(nom::Context::Code(inp, nom::ErrorKind::Custom(0))))?;
+        let c = c.map_err(|_| nom::Err::Error(nom::error::Error::new(inp, ErrorKind::Verify)))?;
 
         // return the compression
         Ok((inp, c.1))
@@ -351,7 +351,7 @@ fn test_get_directonary() {
 }
 
 /// Compression Flags
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, Default)]
 pub enum CompressionFlags {
     Save,
     Fastest,
@@ -359,6 +359,7 @@ pub enum CompressionFlags {
     Normal,
     Good,
     Best,
+    #[default]
     Unknown,
 }
 
@@ -386,8 +387,4 @@ impl From<u8> for CompressionFlags {
     }
 }
 
-impl Default for CompressionFlags {
-    fn default() -> CompressionFlags {
-        CompressionFlags::Unknown
-    }
-}
+

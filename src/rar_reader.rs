@@ -1,5 +1,4 @@
-use failure;
-use nom;
+use crate::sig_block::SignatureBlock;
 use std::io;
 use std::io::{BufRead, BufReader, Read};
 
@@ -54,7 +53,7 @@ impl<'a> RarReader<'a> {
     }
 
     /// This function executes a nom parser against the data of the buffer.
-    pub fn exec_nom_parser<F, D>(&mut self, func: F) -> Result<D, failure::Error>
+    pub fn exec_nom_parser<F, D>(&mut self, func: F) -> Result<D, anyhow::Error>
     where
         F: Fn(&[u8]) -> nom::IResult<&[u8], D>,
     {
@@ -85,7 +84,7 @@ impl<'a> RarReader<'a> {
         // take the outcome and perform the required changes
         match res {
             // on error return an error
-            Stati::Error => Err(format_err!("Can't execute nom parser")),
+            Stati::Error => Err(anyhow::anyhow!("Can't execute nom parser")),
             // on sucess resize the buffer and return the result
             Stati::Success(bl, d) => {
                 self.consume(buf_len - bl);
@@ -125,9 +124,7 @@ fn test_exec_nom_parser() {
 
     let mut db = RarReader::new(::std::io::Cursor::new(data));
 
-    assert!(db
-        .exec_nom_parser(::sig_block::SignatureBlock::parse)
-        .is_ok());
+    assert!(db.exec_nom_parser(SignatureBlock::parse).is_ok());
     assert_eq!(db.fill_buf().unwrap(), &data[8..]);
 }
 #[test]
