@@ -17,8 +17,8 @@ exclude = [
 [dependencies]
 nom = "7.1"
 anyhow = "1.0"
-lazy_static = "1.1.0"
-chrono = "0.4.5"
+lazy_static = "1.5"
+chrono = "0.4"
 aes = "0.8"
 cbc = "0.1"
 pbkdf2 = "0.12"
