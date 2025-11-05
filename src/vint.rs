@@ -47,19 +47,19 @@ pub fn vint(input: &[u8]) -> nom::IResult<&[u8], u64> {
     Ok((&input[len..], out))
 }
 
-/// Check if a byte has the vint bit set
-fn is_vint_bit(input: u8) -> bool {
-    (input & 0x80) != 0
-}
-
-/// Split a vint byte into its components
-fn split_vint(input: u8) -> (bool, u8) {
-    (is_vint_bit(input), input & 0x7F)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Check if a byte has the vint bit set
+    fn is_vint_bit(input: u8) -> bool {
+        (input & 0x80) != 0
+    }
+
+    /// Split a vint byte into its components
+    fn split_vint(input: u8) -> (bool, u8) {
+        (is_vint_bit(input), input & 0x7F)
+    }
 
     #[test]
     fn test_vint() {

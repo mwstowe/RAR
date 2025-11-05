@@ -1,5 +1,9 @@
-use crate::extra_block::{ExtraAreaBlock, FileTimeBlock};
-use crate::head_block::{Flags, HeadBlock, Typ};
+use crate::extra_block::ExtraAreaBlock;
+use crate::head_block::{HeadBlock, Typ};
+#[cfg(test)]
+use crate::extra_block::FileTimeBlock;
+#[cfg(test)]
+use crate::head_block::Flags;
 use crate::util::{get_bit_at, split_u64, to_bool};
 use crate::vint::vint;
 
