@@ -1,7 +1,7 @@
 [package]
 name = "rar-rs"
 version = "0.4.0"
-authors = ["Robert Schütte <schuetterobert@gmail.com>", "mwstowe <mwstowe@member.mensa.org>"]
+authors = ["Robert Schütte <schuetterobert@gmail.com>", "Michael Stowe <michael.stowe@member.mensa.org>"]
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/mwstowe/RAR"
