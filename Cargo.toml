@@ -1,13 +1,13 @@
 [package]
 name = "rar-rs"
 version = "0.4.0"
-authors = ["Robert Schütte <schuetterobert@gmail.com>", "mwstowe <mwstowe@users.noreply.github.com>"]
+authors = ["Robert Schütte <schuetterobert@gmail.com>", "mwstowe <mwstowe@member.mensa.org>"]
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/mwstowe/RAR"
 homepage = "https://github.com/mwstowe/RAR"
 description = """
-Enhanced Rust native RAR extractor based upon nom with improved security and performance
+Rust native RAR extractor based upon nom
 """
 edition = "2021"
 exclude = [
