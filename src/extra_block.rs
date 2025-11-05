@@ -293,8 +293,6 @@ impl FileEncryptionVersion {
     }
 }
 
-
-
 /// File Encryption Block Flags which gives informaton
 /// about how the decrypt the file
 #[derive(PartialEq, Debug, Clone, Default)]

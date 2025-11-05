@@ -11,10 +11,10 @@ extern crate thiserror;
 #[macro_use]
 extern crate lazy_static;
 
-pub mod error;
 mod aes_reader;
 mod archive_block;
 mod end_block;
+pub mod error;
 mod extra_block;
 mod extractor;
 mod file_block;
@@ -64,46 +64,38 @@ impl Archive {
         let mut quick_open = None;
         let mut file_number = 1;
         // loop over the packages and define how to handle them
-        loop {
-            // Check if the next is a file
-            match reader.exec_nom_parser(file_block::FileBlock::parse) {
-                Ok(mut f) => {
-                    // quick open file?
-                    if f.name == "QO" {
-                        reader.r_seek(f.head.data_area_size)?;
-                        quick_open = Some(f);
-                        break;
-                    }
-
-                    // limit the reader, because the rest of the file is not important,
-                    // when we have multiple files
-                    if f.head.flags.data_next {
-                        reader = RarReader::new(reader.take(f.head.data_area_size));
-                    }
-
-                    // create a new reader which chains the different data areas
-                    // between the different .rar files to extract the right one
-                    let mut data_area_size = f.head.data_area_size;
-                    while f.head.flags.data_next {
-                        reader = extractor::continue_data_next_file(
-                            reader,
-                            &mut f,
-                            file_name,
-                            &mut file_number,
-                            &mut data_area_size,
-                        )?;
-                    }
-
-                    // extract all the data
-                    extractor::extract(&f, path, &mut reader, data_area_size, password)?;
-
-                    // add the file to the array
-                    files.push(f);
-                }
-                Err(_) => {
-                    break;
-                }
+        while let Ok(mut f) = reader.exec_nom_parser(file_block::FileBlock::parse) {
+            // quick open file?
+            if f.name == "QO" {
+                reader.r_seek(f.head.data_area_size)?;
+                quick_open = Some(f);
+                break;
             }
+
+            // limit the reader, because the rest of the file is not important,
+            // when we have multiple files
+            if f.head.flags.data_next {
+                reader = RarReader::new(reader.take(f.head.data_area_size));
+            }
+
+            // create a new reader which chains the different data areas
+            // between the different .rar files to extract the right one
+            let mut data_area_size = f.head.data_area_size;
+            while f.head.flags.data_next {
+                reader = extractor::continue_data_next_file(
+                    reader,
+                    &mut f,
+                    file_name,
+                    &mut file_number,
+                    &mut data_area_size,
+                )?;
+            }
+
+            // extract all the data
+            extractor::extract(&f, path, &mut reader, data_area_size, password)?;
+
+            // add the file to the array
+            files.push(f);
         }
 
         // Get the end block
@@ -167,7 +159,7 @@ mod tests {
             read_file(&format!("target/rar-test/{}/text.txt", rar))
         );
 
-        remove_dir_all(&format!("target/rar-test/{}", rar)).unwrap();
+        remove_dir_all(format!("target/rar-test/{}", rar)).unwrap();
     }
 
     #[test]

@@ -1,9 +1,9 @@
 use crate::aes_reader::RarAesReader;
+use crate::error::{RarError, Result};
 use crate::file_block::FileBlock;
 use crate::file_writer::FileWriter;
 use crate::rar_reader::RarReader;
 use crate::{archive_block::ArchiveBlock, sig_block::SignatureBlock, BUFFER_SIZE};
-use crate::error::{RarError, Result};
 use std::io::prelude::*;
 use std::io::Read;
 

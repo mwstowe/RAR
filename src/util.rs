@@ -8,13 +8,13 @@ pub fn get_bit_at(input: u64, n: u64) -> bool {
 }
 #[test]
 fn test_get_bit_at() {
-    assert_eq!(get_bit_at(0xFF, 1), true);
-    assert_eq!(get_bit_at(0x7F, 7), false);
-    assert_eq!(get_bit_at(0x7F, 6), true);
-    assert_eq!(get_bit_at(0x00, 0), false);
-    assert_eq!(get_bit_at(0x01, 0), true);
-    assert_eq!(get_bit_at(0x02, 0), false);
-    assert_eq!(get_bit_at(0x02, 1), true);
+    assert!(get_bit_at(0xFF, 1));
+    assert!(!get_bit_at(0x7F, 7));
+    assert!(get_bit_at(0x7F, 6));
+    assert!(!get_bit_at(0x00, 0));
+    assert!(get_bit_at(0x01, 0));
+    assert!(!get_bit_at(0x02, 0));
+    assert!(get_bit_at(0x02, 1));
 }
 
 /// Split an u64 back to an array of u8
@@ -70,7 +70,7 @@ pub fn to_bool(i: u8) -> bool {
 }
 #[test]
 fn test_to_bool() {
-    assert_eq!(to_bool(0), false);
-    assert_eq!(to_bool(1), true);
-    assert_eq!(to_bool(10), true);
+    assert!(!to_bool(0));
+    assert!(to_bool(1));
+    assert!(to_bool(10));
 }

@@ -1,6 +1,6 @@
-use crate::head_block::{HeadBlock, Typ};
 #[cfg(test)]
 use crate::head_block::Flags;
+use crate::head_block::{HeadBlock, Typ};
 use crate::util::to_bool;
 use crate::vint::vint;
 

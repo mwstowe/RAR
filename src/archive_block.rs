@@ -1,6 +1,6 @@
-use crate::head_block::{HeadBlock, Typ};
 #[cfg(test)]
 use crate::head_block::Flags;
+use crate::head_block::{HeadBlock, Typ};
 use crate::util::get_bit_at;
 use crate::vint::vint;
 

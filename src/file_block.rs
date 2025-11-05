@@ -1,9 +1,9 @@
 use crate::extra_block::ExtraAreaBlock;
-use crate::head_block::{HeadBlock, Typ};
 #[cfg(test)]
 use crate::extra_block::FileTimeBlock;
 #[cfg(test)]
 use crate::head_block::Flags;
+use crate::head_block::{HeadBlock, Typ};
 use crate::util::{get_bit_at, split_u64, to_bool};
 use crate::vint::vint;
 
@@ -271,8 +271,6 @@ impl From<u64> for OsFlags {
     }
 }
 
-
-
 /// Compression dataset
 #[derive(PartialEq, Debug, Clone, Default)]
 pub struct Compression {
@@ -390,5 +388,3 @@ impl From<u8> for CompressionFlags {
         CompressionFlags::Unknown
     }
 }
-
-

@@ -88,8 +88,6 @@ impl From<u64> for Typ {
     }
 }
 
-
-
 /// Flags for a header block
 #[derive(PartialEq, Debug, Clone, Default)]
 pub struct Flags {

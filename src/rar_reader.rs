@@ -1,7 +1,7 @@
 use crate::error::{RarError, Result};
-use std::io::{BufRead, BufReader, Read};
 #[cfg(test)]
 use crate::sig_block::SignatureBlock;
+use std::io::{BufRead, BufReader, Read};
 
 /// The RarReader is abstracting an BufRead trait to
 /// easily share, change and chain the different reader.

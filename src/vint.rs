@@ -1,4 +1,3 @@
-
 use std::num::NonZero;
 
 /// Returns the next complete vint number as u64.
@@ -82,7 +81,7 @@ mod tests {
 
     #[test]
     fn test_is_vint_bit() {
-        assert_eq!(is_vint_bit(0x80), true);
-        assert_eq!(is_vint_bit(0x7F), false);
+        assert!(is_vint_bit(0x80));
+        assert!(!is_vint_bit(0x7F));
     }
 }
