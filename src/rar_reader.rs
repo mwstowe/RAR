@@ -1,6 +1,6 @@
-use failure;
-use nom;
-use std::io;
+use crate::error::{RarError, Result};
+#[cfg(test)]
+use crate::sig_block::SignatureBlock;
 use std::io::{BufRead, BufReader, Read};
 
 /// The RarReader is abstracting an BufRead trait to
@@ -30,7 +30,7 @@ impl<'a> RarReader<'a> {
     /// which is not really performant....
     ///
     /// Unless the Chain struct is not supporting the Seek trait, we need to live with this.
-    pub fn r_seek(&mut self, amt: u64) -> Result<(), io::Error> {
+    pub fn r_seek(&mut self, amt: u64) -> std::io::Result<()> {
         let mut amt = amt;
         let mut buf = [0u8; 8000];
 
@@ -54,7 +54,7 @@ impl<'a> RarReader<'a> {
     }
 
     /// This function executes a nom parser against the data of the buffer.
-    pub fn exec_nom_parser<F, D>(&mut self, func: F) -> Result<D, failure::Error>
+    pub fn exec_nom_parser<F, D>(&mut self, func: F) -> Result<D>
     where
         F: Fn(&[u8]) -> nom::IResult<&[u8], D>,
     {
@@ -85,7 +85,7 @@ impl<'a> RarReader<'a> {
         // take the outcome and perform the required changes
         match res {
             // on error return an error
-            Stati::Error => Err(format_err!("Can't execute nom parser")),
+            Stati::Error => Err(RarError::ParserError),
             // on sucess resize the buffer and return the result
             Stati::Success(bl, d) => {
                 self.consume(buf_len - bl);
@@ -97,14 +97,14 @@ impl<'a> RarReader<'a> {
 
 impl<'a> Read for RarReader<'a> {
     /// Read from the internal reader.
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, io::Error> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.inner.read(buf)
     }
 }
 
 impl<'a> BufRead for RarReader<'a> {
     /// Fills the buffer and returns the content
-    fn fill_buf(&mut self) -> Result<&[u8], io::Error> {
+    fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
         self.inner.fill_buf()
     }
 
@@ -125,9 +125,7 @@ fn test_exec_nom_parser() {
 
     let mut db = RarReader::new(::std::io::Cursor::new(data));
 
-    assert!(db
-        .exec_nom_parser(::sig_block::SignatureBlock::parse)
-        .is_ok());
+    assert!(db.exec_nom_parser(SignatureBlock::parse).is_ok());
     assert_eq!(db.fill_buf().unwrap(), &data[8..]);
 }
 #[test]

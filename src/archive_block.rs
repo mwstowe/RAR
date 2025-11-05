@@ -1,7 +1,11 @@
-use head_block::HeadBlock;
-use nom;
-use util::get_bit_at;
-use vint::vint;
+#[cfg(test)]
+use crate::head_block::Flags;
+use crate::head_block::{HeadBlock, Typ};
+use crate::util::get_bit_at;
+use crate::vint::vint;
+
+use nom::bytes::complete::take;
+use nom::error::ErrorKind;
 
 /// Archive header which can exist once for each
 /// .rar archive file.
@@ -20,8 +24,11 @@ impl ArchiveBlock {
         let (input, head) = HeadBlock::parse(inp)?;
 
         // check if the defined type is archive header
-        if head.typ != ::head_block::Typ::MainArchive {
-            return Err(nom::Err::Error(error_position!(inp, nom::ErrorKind::IsNot)));
+        if head.typ != Typ::MainArchive {
+            return Err(nom::Err::Error(nom::error::Error::new(
+                inp,
+                ErrorKind::Verify,
+            )));
         }
 
         // get the archive flags
@@ -45,7 +52,7 @@ impl ArchiveBlock {
         // check for a data area
         if archive.head.flags.extra_area {
             // _ holds locator data - no processed right now
-            let (i, _) = take!(input, archive.head.extra_area_size)?;
+            let (i, _) = take(archive.head.extra_area_size as usize)(input)?;
             input = i;
         }
 
@@ -61,11 +68,11 @@ fn test_archive() {
         0x00, 0x8C, 0x0D, 0x88, 0xE2,
     ];
 
-    let mut flags = ::head_block::Flags::default();
+    let mut flags = Flags::default();
     flags.extra_area = true;
     flags.skip = true;
     let mut arc = ArchiveBlock {
-        head: HeadBlock::new(4091642603, 11, ::head_block::Typ::MainArchive, flags),
+        head: HeadBlock::new(4091642603, 11, Typ::MainArchive, flags),
         flags: ArchiveFlags::default(),
         volume_number: 0,
     };
@@ -82,9 +89,9 @@ fn test_archive() {
     ];
     assert_eq!(
         ArchiveBlock::parse(&data),
-        Err(nom::Err::Error(error_position!(
+        Err(nom::Err::Error(nom::error::Error::new(
             &data[..],
-            nom::ErrorKind::IsNot
+            ErrorKind::Verify
         )))
     );
 }

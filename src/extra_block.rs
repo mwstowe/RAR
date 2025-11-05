@@ -1,7 +1,9 @@
-use chrono::naive::NaiveDateTime;
-use nom;
-use util;
-use vint;
+use crate::util;
+use crate::vint;
+use chrono::{naive::NaiveDateTime, DateTime};
+
+use nom::bytes::complete::take;
+use nom::number::complete::{le_u32, le_u64};
 
 /// The Extra Area Block which provides optional
 /// information about the file.
@@ -24,10 +26,10 @@ impl ExtraAreaBlock {
         };
 
         // parse all the different extra blocks after each other
-        while inp.len() > 0 {
+        while !inp.is_empty() {
             let (i, size) = vint::vint(inp)?;
             let (i, typ) = vint::vint(i)?;
-            let (i, data) = take!(i, size - 1)?;
+            let (i, data) = take(size - 1)(i)?;
             inp = i;
 
             // based upon the block type use the right parser
@@ -156,14 +158,16 @@ impl FileTimeBlock {
         unix_time: bool,
     ) -> nom::IResult<&[u8], Option<NaiveDateTime>> {
         if unix_time {
-            let (i, t) = nom::le_u32(take!(input, 4)?.1)?;
-            let t = NaiveDateTime::from_timestamp_opt(t as i64, 0);
-            Ok((i, t))
+            let (input, data) = take(4usize)(input)?;
+            let (_, t) = le_u32(data)?;
+            let t = DateTime::from_timestamp(t as i64, 0).map(|dt| dt.naive_utc());
+            Ok((input, t))
         } else {
-            let (i, t) = nom::le_u64(take!(input, 8)?.1)?;
+            let (input, data) = take(8usize)(input)?;
+            let (_, t) = le_u64(data)?;
             let t = (t / 10000000) - 11644473600;
-            let t = NaiveDateTime::from_timestamp_opt(t as i64, 0);
-            Ok((i, t))
+            let t = DateTime::from_timestamp(t as i64, 0).map(|dt| dt.naive_utc());
+            Ok((input, t))
         }
     }
 }
@@ -213,16 +217,16 @@ impl FileEncryptionBlock {
         // Parse flags
         let (inp, flags) = FileEncryptionBlockFlags::parse(inp)?;
         // parse kdf count
-        let (inp, kdf_count) = take!(inp, 1)?;
+        let (inp, kdf_count) = take(1usize)(inp)?;
         // parse salt value
-        let (inp, salt) = take!(inp, 16)?;
+        let (inp, salt) = take(16usize)(inp)?;
         // parse init value
-        let (mut inp, init) = take!(inp, 16)?;
+        let (mut inp, init) = take(16usize)(inp)?;
         // parse pw check value
         let mut pw_check = [0; 12];
         if flags.pw_check_data {
-            let (i, p) = take!(inp, 12)?;
-            pw_check.copy_from_slice(&p);
+            let (i, p) = take(12usize)(inp)?;
+            pw_check.copy_from_slice(p);
             inp = i;
         }
 
@@ -235,8 +239,8 @@ impl FileEncryptionBlock {
             pw_check,
         };
 
-        feb.salt.copy_from_slice(&salt);
-        feb.init.copy_from_slice(&init);
+        feb.salt.copy_from_slice(salt);
+        feb.init.copy_from_slice(init);
 
         Ok((inp, feb))
     }
@@ -271,8 +275,9 @@ fn test_file_encryption_parse() {
 
 /// File Encryption Block which gives the necessary
 /// Information about the encrypted file.
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, Default)]
 pub enum FileEncryptionVersion {
+    #[default]
     Aes256,
     Unknown,
 }
@@ -285,12 +290,6 @@ impl FileEncryptionVersion {
             0x00 => Ok((inp, FileEncryptionVersion::Aes256)),
             _ => Ok((inp, FileEncryptionVersion::Unknown)),
         }
-    }
-}
-
-impl Default for FileEncryptionVersion {
-    fn default() -> FileEncryptionVersion {
-        FileEncryptionVersion::Aes256
     }
 }
 
@@ -307,10 +306,10 @@ impl FileEncryptionBlockFlags {
         // Parse flags
         let (inp, flags) = vint::vint(input)?;
 
-        let mut febf = FileEncryptionBlockFlags::default();
-
-        febf.pw_check_data = util::get_bit_at(flags, 0);
-        febf.tweaked_crc = util::get_bit_at(flags, 1);
+        let febf = FileEncryptionBlockFlags {
+            pw_check_data: util::get_bit_at(flags, 0),
+            tweaked_crc: util::get_bit_at(flags, 1),
+        };
 
         Ok((inp, febf))
     }

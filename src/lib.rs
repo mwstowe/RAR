@@ -1,9 +1,11 @@
-#[macro_use]
-extern crate failure;
-#[macro_use]
-extern crate nom;
+extern crate aes;
+extern crate cbc;
 extern crate chrono;
-extern crate crypto;
+extern crate hmac;
+extern crate nom;
+extern crate pbkdf2;
+extern crate sha2;
+extern crate thiserror;
 
 #[cfg(test)]
 #[macro_use]
@@ -12,6 +14,7 @@ extern crate lazy_static;
 mod aes_reader;
 mod archive_block;
 mod end_block;
+pub mod error;
 mod extra_block;
 mod extractor;
 mod file_block;
@@ -24,7 +27,7 @@ mod vint;
 
 const BUFFER_SIZE: usize = 8192;
 
-use failure::Error;
+use crate::error::{RarError, Result};
 use rar_reader::RarReader;
 use std::fs::File;
 use std::io::Read;
@@ -42,71 +45,63 @@ pub struct Archive {
 impl Archive {
     /// This function extracts the .rar archive and returns the parsed
     /// structure as additional information
-    pub fn extract_all(file_name: &str, path: &str, password: &str) -> Result<Archive, Error> {
+    pub fn extract_all(file_name: &str, path: &str, password: &str) -> Result<Archive> {
         // Open a file reader
-        let reader = File::open(&file_name)?;
+        let reader = File::open(file_name)?;
         // initilize the buffer
         let mut reader = RarReader::new_from_file(reader);
 
         // try to parse the signature
         let version = reader
             .exec_nom_parser(sig_block::SignatureBlock::parse)
-            .map_err(|_| format_err!("Can't read RAR signature"))?;
+            .map_err(|_| RarError::InvalidSignature)?;
         // try to parse the archive information
         let details = reader
             .exec_nom_parser(archive_block::ArchiveBlock::parse)
-            .map_err(|_| format_err!("Can't read RAR archive block"))?;
+            .map_err(|_| RarError::InvalidArchiveBlock)?;
 
         let mut files = vec![];
         let mut quick_open = None;
         let mut file_number = 1;
         // loop over the packages and define how to handle them
-        loop {
-            // Check if the next is a file
-            match reader.exec_nom_parser(file_block::FileBlock::parse) {
-                Ok(mut f) => {
-                    // quick open file?
-                    if f.name == "QO" {
-                        reader.r_seek(f.head.data_area_size)?;
-                        quick_open = Some(f);
-                        break;
-                    }
-
-                    // limit the reader, because the rest of the file is not important,
-                    // when we have multiple files
-                    if f.head.flags.data_next {
-                        reader = RarReader::new(reader.take(f.head.data_area_size));
-                    }
-
-                    // create a new reader which chains the different data areas
-                    // between the different .rar files to extract the right one
-                    let mut data_area_size = f.head.data_area_size;
-                    while f.head.flags.data_next {
-                        reader = extractor::continue_data_next_file(
-                            reader,
-                            &mut f,
-                            &file_name,
-                            &mut file_number,
-                            &mut data_area_size,
-                        )?;
-                    }
-
-                    // extract all the data
-                    extractor::extract(&f, path, &mut reader, data_area_size, password)?;
-
-                    // add the file to the array
-                    files.push(f);
-                }
-                Err(_) => {
-                    break;
-                }
+        while let Ok(mut f) = reader.exec_nom_parser(file_block::FileBlock::parse) {
+            // quick open file?
+            if f.name == "QO" {
+                reader.r_seek(f.head.data_area_size)?;
+                quick_open = Some(f);
+                break;
             }
+
+            // limit the reader, because the rest of the file is not important,
+            // when we have multiple files
+            if f.head.flags.data_next {
+                reader = RarReader::new(reader.take(f.head.data_area_size));
+            }
+
+            // create a new reader which chains the different data areas
+            // between the different .rar files to extract the right one
+            let mut data_area_size = f.head.data_area_size;
+            while f.head.flags.data_next {
+                reader = extractor::continue_data_next_file(
+                    reader,
+                    &mut f,
+                    file_name,
+                    &mut file_number,
+                    &mut data_area_size,
+                )?;
+            }
+
+            // extract all the data
+            extractor::extract(&f, path, &mut reader, data_area_size, password)?;
+
+            // add the file to the array
+            files.push(f);
         }
 
         // Get the end block
         let end = reader
             .exec_nom_parser(end_block::EndBlock::parse)
-            .map_err(|_| format_err!("Can't read RAR end"))?;
+            .map_err(|_| RarError::InvalidEnd)?;
 
         // return the archive information
         Ok(Archive {
@@ -122,10 +117,10 @@ impl Archive {
 /********************** All .rar file test **********************/
 #[cfg(test)]
 mod tests {
-    use sig_block::SignatureBlock;
+    use crate::sig_block::SignatureBlock;
+    use crate::Archive;
     use std::fs::{remove_dir_all, File};
     use std::io::Read;
-    use Archive;
 
     // Small helper function to read a file
     fn read_file(path: &str) -> Vec<u8> {
@@ -164,7 +159,7 @@ mod tests {
             read_file(&format!("target/rar-test/{}/text.txt", rar))
         );
 
-        remove_dir_all(&format!("target/rar-test/{}", rar)).unwrap();
+        remove_dir_all(format!("target/rar-test/{}", rar)).unwrap();
     }
 
     #[test]

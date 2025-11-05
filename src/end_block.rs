@@ -1,7 +1,10 @@
-use head_block::HeadBlock;
-use nom;
-use util::to_bool;
-use vint::vint;
+#[cfg(test)]
+use crate::head_block::Flags;
+use crate::head_block::{HeadBlock, Typ};
+use crate::util::to_bool;
+use crate::vint::vint;
+
+use nom::error::ErrorKind;
 
 /// EndBlock which determines the end of an .rar file
 #[derive(PartialEq, Debug, Default)]
@@ -17,8 +20,11 @@ impl EndBlock {
         let (input, head) = HeadBlock::parse(inp)?;
 
         // check if the defined type is end archive header
-        if head.typ != ::head_block::Typ::EndArchive {
-            return Err(nom::Err::Error(error_position!(inp, nom::ErrorKind::IsNot)));
+        if head.typ != Typ::EndArchive {
+            return Err(nom::Err::Error(nom::error::Error::new(
+                inp,
+                ErrorKind::Verify,
+            )));
         }
 
         // check for the last volume flag
@@ -37,10 +43,10 @@ fn test_archive() {
     // test a success case
     let data = [0x1D, 0x77, 0x56, 0x51, 0x03, 0x05, 0x04, 0x00];
 
-    let mut flags = ::head_block::Flags::new();
+    let mut flags = Flags::new();
     flags.skip = true;
     let arc = EndBlock {
-        head: HeadBlock::new(494360145, 3, ::head_block::Typ::EndArchive, flags),
+        head: HeadBlock::new(494360145, 3, Typ::EndArchive, flags),
         last_volume: true,
     };
     assert_eq!(EndBlock::parse(&data), Ok((&[][..], arc)));
@@ -52,9 +58,9 @@ fn test_archive() {
     ];
     assert_eq!(
         EndBlock::parse(&data),
-        Err(nom::Err::Error(error_position!(
+        Err(nom::Err::Error(nom::error::Error::new(
             &data[..],
-            nom::ErrorKind::IsNot
+            ErrorKind::Verify
         )))
     );
 }

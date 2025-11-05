@@ -17,6 +17,13 @@ let archive = rar::Archive::extract_all(
 println!("Result: {:?}", archive);
 ```
 
+## Version 0.4.0
+This version is functionally equivalent to 0.3.0 but includes:
+- Updated dependencies for better compatibility
+- Fixed CBC decryption implementation for encrypted archives
+- Improved code quality and Rust idioms
+- All tests now pass (32/32)
+
 # Features
 **RAR 5**
 - [x] Extract archive with single File

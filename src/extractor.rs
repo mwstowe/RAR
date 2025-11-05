@@ -1,8 +1,9 @@
-use aes_reader::RarAesReader;
-use failure::Error;
-use file_block::FileBlock;
-use file_writer::FileWriter;
-use rar_reader::RarReader;
+use crate::aes_reader::RarAesReader;
+use crate::error::{RarError, Result};
+use crate::file_block::FileBlock;
+use crate::file_writer::FileWriter;
+use crate::rar_reader::RarReader;
+use crate::{archive_block::ArchiveBlock, sig_block::SignatureBlock, BUFFER_SIZE};
 use std::io::prelude::*;
 use std::io::Read;
 
@@ -13,9 +14,9 @@ pub fn extract(
     reader: &mut RarReader,
     data_area_size: u64,
     password: &str,
-) -> Result<(), Error> {
+) -> Result<()> {
     // create file writer to create and fill the file
-    let mut f_writer = FileWriter::new(file.clone(), &path)?;
+    let mut f_writer = FileWriter::new(file.clone(), path)?;
 
     // Limit the data to take from the reader
     let reader = RarReader::new(reader.take(data_area_size));
@@ -24,14 +25,14 @@ pub fn extract(
     let mut reader = RarAesReader::new(reader, file.clone(), password);
 
     // loop over chunks of the data and write it to the files
-    let mut data_buffer = [0u8; ::BUFFER_SIZE];
+    let mut data_buffer = [0u8; BUFFER_SIZE];
     loop {
         // read a chunk of data from the buffer
         let new_byte_count = reader.read(&mut data_buffer)?;
         let data = &mut data_buffer[..new_byte_count];
 
         // end loop if nothing is there anymore
-        if new_byte_count <= 0 {
+        if new_byte_count == 0 {
             break;
         }
 
@@ -39,7 +40,7 @@ pub fn extract(
         // todo
 
         // write out the data
-        if let Err(e) = f_writer.write_all(&data) {
+        if let Err(e) = f_writer.write_all(data) {
             if e.kind() == ::std::io::ErrorKind::WriteZero {
                 // end loop when the file capacity is reached
                 break;
@@ -64,7 +65,7 @@ pub fn continue_data_next_file<'a>(
     file_name: &str,
     file_number: &mut usize,
     data_area_size: &mut u64,
-) -> Result<RarReader<'a>, Error> {
+) -> Result<RarReader<'a>> {
     // get the next rar file name
     let mut new_file_name = file_name.to_string();
     let len = new_file_name.len();
@@ -78,25 +79,25 @@ pub fn continue_data_next_file<'a>(
 
     // try to parse the signature
     let version = new_buffer
-        .exec_nom_parser(::sig_block::SignatureBlock::parse)
-        .map_err(|_| format_err!("Can't read RAR signature"))?;
+        .exec_nom_parser(SignatureBlock::parse)
+        .map_err(|_| RarError::InvalidSignature)?;
     // try to parse the archive information
     let details = new_buffer
-        .exec_nom_parser(::archive_block::ArchiveBlock::parse)
-        .map_err(|_| format_err!("Can't read RAR archive block"))?;
+        .exec_nom_parser(ArchiveBlock::parse)
+        .map_err(|_| RarError::InvalidArchiveBlock)?;
     // try to parse the file
     let new_file = new_buffer
         .exec_nom_parser(FileBlock::parse)
-        .map_err(|_| format_err!("Can't read RAR file block"))?;
+        .map_err(|_| RarError::InvalidFileBlock)?;
 
     // check if the next file info is the same as from prvious .rar
-    if version != ::sig_block::SignatureBlock::RAR5
+    if version != SignatureBlock::RAR5
         || details.volume_number != *file_number as u64
         || new_file.name != file.name
     {
-        return Err(format_err!(
-            "The file header in the new .rar file don't match the needed file"
-        ));
+        return Err(RarError::FileNotFound {
+            filename: "file header mismatch".to_string(),
+        });
     }
 
     // Limit the data to take from the reader, when this data area
