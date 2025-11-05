@@ -16,7 +16,7 @@ exclude = [
 
 [dependencies]
 nom = "7.1"
-anyhow = "1.0"
+thiserror = "2.0"
 lazy_static = "1.5"
 chrono = "0.4"
 aes = "0.8"

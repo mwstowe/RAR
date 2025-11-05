@@ -1,16 +1,17 @@
 extern crate aes;
-extern crate anyhow;
 extern crate cbc;
 extern crate chrono;
 extern crate hmac;
 extern crate nom;
 extern crate pbkdf2;
 extern crate sha2;
+extern crate thiserror;
 
 #[cfg(test)]
 #[macro_use]
 extern crate lazy_static;
 
+pub mod error;
 mod aes_reader;
 mod archive_block;
 mod end_block;
@@ -26,7 +27,7 @@ mod vint;
 
 const BUFFER_SIZE: usize = 8192;
 
-use anyhow::Error;
+use crate::error::{RarError, Result};
 use rar_reader::RarReader;
 use std::fs::File;
 use std::io::Read;
@@ -44,7 +45,7 @@ pub struct Archive {
 impl Archive {
     /// This function extracts the .rar archive and returns the parsed
     /// structure as additional information
-    pub fn extract_all(file_name: &str, path: &str, password: &str) -> Result<Archive, Error> {
+    pub fn extract_all(file_name: &str, path: &str, password: &str) -> Result<Archive> {
         // Open a file reader
         let reader = File::open(file_name)?;
         // initilize the buffer
@@ -53,11 +54,11 @@ impl Archive {
         // try to parse the signature
         let version = reader
             .exec_nom_parser(sig_block::SignatureBlock::parse)
-            .map_err(|_| anyhow::anyhow!("Can't read RAR signature"))?;
+            .map_err(|_| RarError::InvalidSignature)?;
         // try to parse the archive information
         let details = reader
             .exec_nom_parser(archive_block::ArchiveBlock::parse)
-            .map_err(|_| anyhow::anyhow!("Can't read RAR archive block"))?;
+            .map_err(|_| RarError::InvalidArchiveBlock)?;
 
         let mut files = vec![];
         let mut quick_open = None;
@@ -108,7 +109,7 @@ impl Archive {
         // Get the end block
         let end = reader
             .exec_nom_parser(end_block::EndBlock::parse)
-            .map_err(|_| anyhow::anyhow!("Can't read RAR end"))?;
+            .map_err(|_| RarError::InvalidEnd)?;
 
         // return the archive information
         Ok(Archive {

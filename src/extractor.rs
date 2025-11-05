@@ -3,7 +3,7 @@ use crate::file_block::FileBlock;
 use crate::file_writer::FileWriter;
 use crate::rar_reader::RarReader;
 use crate::{archive_block::ArchiveBlock, sig_block::SignatureBlock, BUFFER_SIZE};
-use anyhow::Error;
+use crate::error::{RarError, Result};
 use std::io::prelude::*;
 use std::io::Read;
 
@@ -14,7 +14,7 @@ pub fn extract(
     reader: &mut RarReader,
     data_area_size: u64,
     password: &str,
-) -> Result<(), Error> {
+) -> Result<()> {
     // create file writer to create and fill the file
     let mut f_writer = FileWriter::new(file.clone(), path)?;
 
@@ -65,7 +65,7 @@ pub fn continue_data_next_file<'a>(
     file_name: &str,
     file_number: &mut usize,
     data_area_size: &mut u64,
-) -> Result<RarReader<'a>, Error> {
+) -> Result<RarReader<'a>> {
     // get the next rar file name
     let mut new_file_name = file_name.to_string();
     let len = new_file_name.len();
@@ -80,24 +80,24 @@ pub fn continue_data_next_file<'a>(
     // try to parse the signature
     let version = new_buffer
         .exec_nom_parser(SignatureBlock::parse)
-        .map_err(|_| anyhow::anyhow!("Can't read RAR signature"))?;
+        .map_err(|_| RarError::InvalidSignature)?;
     // try to parse the archive information
     let details = new_buffer
         .exec_nom_parser(ArchiveBlock::parse)
-        .map_err(|_| anyhow::anyhow!("Can't read RAR archive block"))?;
+        .map_err(|_| RarError::InvalidArchiveBlock)?;
     // try to parse the file
     let new_file = new_buffer
         .exec_nom_parser(FileBlock::parse)
-        .map_err(|_| anyhow::anyhow!("Can't read RAR file block"))?;
+        .map_err(|_| RarError::InvalidFileBlock)?;
 
     // check if the next file info is the same as from prvious .rar
     if version != SignatureBlock::RAR5
         || details.volume_number != *file_number as u64
         || new_file.name != file.name
     {
-        return Err(anyhow::anyhow!(
-            "The file header in the new .rar file don't match the needed file"
-        ));
+        return Err(RarError::FileNotFound {
+            filename: "file header mismatch".to_string(),
+        });
     }
 
     // Limit the data to take from the reader, when this data area
