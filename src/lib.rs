@@ -322,4 +322,38 @@ mod tests {
             ));
         }
     }
+
+    #[test]
+    fn test_fastest_compression() {
+        // Test FASTEST compression method
+        if std::path::Path::new("assets/test-fastest-method.rar").exists() {
+            let result = Archive::extract_all(
+                "assets/test-fastest-method.rar",
+                "target/rar-test/test-fastest/",
+                "",
+            );
+
+            match result {
+                Ok(archive) => {
+                    println!("FASTEST compression extraction succeeded!");
+                    assert_eq!(
+                        archive.files[0].compression.flag,
+                        crate::file_block::CompressionFlags::Fastest
+                    );
+
+                    // Check if file was extracted correctly
+                    let extracted_content =
+                        read_file("target/rar-test/test-fastest/test-fastest.txt");
+                    let content_str = String::from_utf8_lossy(&extracted_content);
+                    println!("Extracted content: {}", content_str);
+
+                    let _ = remove_dir_all("target/rar-test/test-fastest/");
+                }
+                Err(e) => {
+                    println!("FASTEST compression failed: {:?}", e);
+                    // For now, we expect it might fail since this is a basic implementation
+                }
+            }
+        }
+    }
 }

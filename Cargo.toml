@@ -1,6 +1,6 @@
 [package]
 name = "rar"
-version = "0.4.1"
+version = "0.5.0"
 authors = ["Robert Schütte <schuetterobert@gmail.com>", "Michael Stowe <michael.stowe@member.mensa.org>"]
 license = "MIT"
 readme = "README.md"
@@ -25,3 +25,4 @@ pbkdf2 = "0.12"
 hmac = "0.12"
 sha2 = "0.10"
 generic-array = "1.3"
+ppmd-rust = "1.3.0"
