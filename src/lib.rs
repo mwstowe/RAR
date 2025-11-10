@@ -362,27 +362,32 @@ mod tests {
         // Test encrypted + compressed RAR file
         if std::path::Path::new("assets/test-encrypted-compressed.rar").exists() {
             let result = Archive::extract_all(
-                "assets/test-encrypted-compressed.rar", 
-                "target/rar-test/test-encrypted-compressed/", 
-                "testpass"
+                "assets/test-encrypted-compressed.rar",
+                "target/rar-test/test-encrypted-compressed/",
+                "testpass",
             );
-            
+
             match result {
                 Ok(archive) => {
                     println!("Encrypted + compressed extraction succeeded!");
-                    
+
                     // Verify it's both encrypted and compressed
                     assert!(archive.files[0].extra.file_encryption.is_some());
-                    assert_ne!(archive.files[0].compression.flag, crate::file_block::CompressionFlags::Save);
-                    
+                    assert_ne!(
+                        archive.files[0].compression.flag,
+                        crate::file_block::CompressionFlags::Save
+                    );
+
                     // Check if file was extracted correctly
-                    let extracted_content = read_file("target/rar-test/test-encrypted-compressed/test-encrypted-compressed.txt");
+                    let extracted_content = read_file(
+                        "target/rar-test/test-encrypted-compressed/test-encrypted-compressed.txt",
+                    );
                     let content_str = String::from_utf8_lossy(&extracted_content);
                     println!("Extracted content: {}", content_str);
                     assert!(content_str.contains("encrypted and compressed"));
-                    
+
                     let _ = remove_dir_all("target/rar-test/test-encrypted-compressed/");
-                },
+                }
                 Err(e) => {
                     println!("Encrypted + compressed failed: {:?}", e);
                     // This tests the combination of encryption and compression
