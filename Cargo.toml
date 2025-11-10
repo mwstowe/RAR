@@ -1,6 +1,6 @@
 [package]
 name = "rar"
-version = "0.4.0"
+version = "0.4.1"
 authors = ["Robert Schütte <schuetterobert@gmail.com>", "Michael Stowe <michael.stowe@member.mensa.org>"]
 license = "MIT"
 readme = "README.md"

@@ -1,11 +1,12 @@
 use crate::aes_reader::RarAesReader;
+use crate::compression::CompressionReader;
 use crate::error::{RarError, Result};
 use crate::file_block::FileBlock;
 use crate::file_writer::FileWriter;
 use crate::rar_reader::RarReader;
 use crate::{archive_block::ArchiveBlock, sig_block::SignatureBlock, BUFFER_SIZE};
 use std::io::prelude::*;
-use std::io::Read;
+use std::io::{Cursor, Read};
 
 /// This function extracts the data from a RarReader and writes it into an file.
 pub fn extract(
@@ -22,22 +23,26 @@ pub fn extract(
     let reader = RarReader::new(reader.take(data_area_size));
 
     // Initilize the decryption reader
-    let mut reader = RarAesReader::new(reader, file.clone(), password);
+    let mut aes_reader = RarAesReader::new(reader, file.clone(), password);
+
+    // Read all encrypted data first
+    let mut encrypted_data = Vec::new();
+    aes_reader.read_to_end(&mut encrypted_data)?;
+
+    // Initialize the compression reader with the decrypted data
+    let mut comp_reader = CompressionReader::new(Cursor::new(encrypted_data), &file.compression)?;
 
     // loop over chunks of the data and write it to the files
     let mut data_buffer = [0u8; BUFFER_SIZE];
     loop {
         // read a chunk of data from the buffer
-        let new_byte_count = reader.read(&mut data_buffer)?;
+        let new_byte_count = comp_reader.read(&mut data_buffer)?;
         let data = &mut data_buffer[..new_byte_count];
 
         // end loop if nothing is there anymore
         if new_byte_count == 0 {
             break;
         }
-
-        // unpack if necessary
-        // todo
 
         // write out the data
         if let Err(e) = f_writer.write_all(data) {
