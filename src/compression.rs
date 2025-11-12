@@ -2,6 +2,43 @@ use crate::error::{RarError, Result};
 use crate::file_block::{Compression, CompressionFlags};
 use std::io::Read;
 
+// RAR decompression constants based on unarr
+const LENGTH_BASES: [u32; 28] = [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 20,
+    24, 28, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224
+];
+
+const LENGTH_BITS: [i32; 28] = [
+    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2,
+    2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5
+];
+
+const SHORT_BASES: [u32; 8] = [0, 4, 8, 16, 32, 64, 128, 192];
+const SHORT_BITS: [i32; 8] = [2, 2, 3, 4, 5, 6, 6, 6];
+
+// Default Huffman table lengths for RAR compression
+const MAIN_CODE_LENGTHS: [u8; 271] = {
+    let mut lengths = [8u8; 271];
+    lengths[256] = 9; // End symbol
+    lengths[257] = 9; // Filter symbol  
+    lengths[258] = 9; // Repeat symbol
+    lengths[259] = 9; // Old offset 0
+    lengths[260] = 9; // Old offset 1
+    lengths[261] = 9; // Old offset 2
+    lengths[262] = 9; // Old offset 3
+    lengths[263] = 9; // Short match 0
+    lengths[264] = 9; // Short match 1
+    lengths[265] = 9; // Short match 2
+    lengths[266] = 9; // Short match 3
+    lengths[267] = 9; // Short match 4
+    lengths[268] = 9; // Short match 5
+    lengths[269] = 9; // Short match 6
+    lengths[270] = 9; // Short match 7
+    lengths
+};
+
+const LENGTH_CODE_LENGTHS: [u8; 28] = [4; 28];
+
 pub struct CompressionReader {
     inner: Box<dyn Read>,
     method: CompressionFlags,
@@ -12,41 +49,17 @@ pub struct CompressionReader {
 
 impl CompressionReader {
     pub fn new<R: Read + 'static>(reader: R, compression: &Compression) -> Result<Self> {
-        match compression.flag {
-            CompressionFlags::Save => {
-                // No compression - pass through the data as-is
-                Ok(CompressionReader {
-                    inner: Box::new(reader),
-                    method: CompressionFlags::Save,
-                    buffer: Vec::new(),
-                    pos: 0,
-                    decompressed: false,
-                })
-            }
-            CompressionFlags::Fastest => {
-                // Implement FASTEST decompression
-                Ok(CompressionReader {
-                    inner: Box::new(reader),
-                    method: compression.flag.clone(),
-                    buffer: Vec::new(),
-                    pos: 0,
-                    decompressed: false,
-                })
-            }
-            CompressionFlags::Fast
-            | CompressionFlags::Normal
-            | CompressionFlags::Good
-            | CompressionFlags::Best => {
-                // Implement all compression methods using the same algorithm
-                Ok(CompressionReader {
-                    inner: Box::new(reader),
-                    method: compression.flag.clone(),
-                    buffer: Vec::new(),
-                    pos: 0,
-                    decompressed: false,
-                })
-            }
+        let method = compression.flag.clone();
+        
+        match method {
             CompressionFlags::Unknown => Err(RarError::UnsupportedCompression),
+            _ => Ok(Self {
+                inner: Box::new(reader),
+                method,
+                buffer: Vec::new(),
+                pos: 0,
+                decompressed: false,
+            })
         }
     }
 }
@@ -54,19 +67,8 @@ impl CompressionReader {
 impl Read for CompressionReader {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         match self.method {
-            CompressionFlags::Save => {
-                // No compression - pass through
-                self.inner.read(buf)
-            }
-            CompressionFlags::Fastest
-            | CompressionFlags::Fast
-            | CompressionFlags::Normal
-            | CompressionFlags::Good
-            | CompressionFlags::Best => {
-                // All RAR compression methods use the same decompression algorithm
-                self.decompress_rar(buf)
-            }
-            _ => unreachable!(), // Constructor prevents this
+            CompressionFlags::Save => self.inner.read(buf),
+            _ => self.decompress_rar(buf),
         }
     }
 }
@@ -84,9 +86,15 @@ struct HuffmanCode {
     max_length: usize,
 }
 
+impl Default for HuffmanCode {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HuffmanCode {
     fn new() -> Self {
-        HuffmanCode {
+        Self {
             tree: Vec::new(),
             min_length: usize::MAX,
             max_length: 0,
@@ -221,7 +229,7 @@ struct RarBitReader {
 
 impl RarBitReader {
     fn new(data: Vec<u8>) -> Self {
-        RarBitReader {
+        Self {
             data,
             pos: 0,
             bits: 0,
@@ -237,7 +245,7 @@ impl RarBitReader {
 
         // Read as many bytes as possible to fill the 64-bit buffer
         let bytes_to_read = (64 - self.available) / 8;
-        let available_bytes = self.data.len() - self.pos;
+        let available_bytes = self.data.len().saturating_sub(self.pos);
         let count = bytes_to_read.min(available_bytes as i32) as usize;
 
         if bits_needed > self.available + (count as i32 * 8) {
