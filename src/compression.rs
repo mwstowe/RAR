@@ -557,6 +557,91 @@ impl CompressionReader {
         Ok(())
     }
 
+    fn handle_end_of_block(&self, bit_reader: &mut RarBitReader) -> std::io::Result<bool> {
+        if let Some(continue_bit) = bit_reader.read_bit() {
+            if !continue_bit {
+                if let Some(new_table) = bit_reader.read_bit() {
+                    if new_table {
+                        return Ok(self.parse_rar5_codes(bit_reader)?);
+                    }
+                }
+                return Ok(false);
+            }
+            // Continue with new table
+            Ok(self.parse_rar5_codes(bit_reader)?)
+        } else {
+            Ok(false)
+        }
+    }
+
+    fn decode_old_offset_match(
+        &self,
+        symbol: i32,
+        bit_reader: &mut RarBitReader,
+        length_code: &mut HuffmanCode,
+        old_offsets: &mut [u32; 4],
+    ) -> std::io::Result<Option<(u32, u32)>> {
+        let idx = (symbol - 259) as usize;
+        if idx >= old_offsets.len() {
+            return Ok(None);
+        }
+
+        let offset = old_offsets[idx];
+        let len_symbol = length_code.decode_symbol(bit_reader);
+        if len_symbol.is_none() {
+            return Ok(None);
+        }
+        let len_symbol = len_symbol.unwrap() as usize;
+
+        if len_symbol >= LENGTH_BASES.len() {
+            return Ok(None);
+        }
+
+        let mut length = LENGTH_BASES[len_symbol] + 2;
+        if LENGTH_BITS[len_symbol] > 0 {
+            if let Some(extra_bits) = bit_reader.read_bits(LENGTH_BITS[len_symbol]) {
+                length += extra_bits as u32;
+            }
+        }
+
+        // Update old offsets
+        for i in (1..=idx).rev() {
+            old_offsets[i] = old_offsets[i - 1];
+        }
+        old_offsets[0] = offset;
+
+        Ok(Some((offset, length)))
+    }
+
+    fn decode_short_match(
+        &self,
+        symbol: i32,
+        bit_reader: &mut RarBitReader,
+        old_offsets: &mut [u32; 4],
+    ) -> std::io::Result<Option<(u32, u32)>> {
+        let idx = (symbol - 263) as usize;
+        if idx >= SHORT_BASES.len() {
+            return Ok(None);
+        }
+
+        let mut offset = SHORT_BASES[idx] + 1;
+        if SHORT_BITS[idx] > 0 {
+            if let Some(extra_bits) = bit_reader.read_bits(SHORT_BITS[idx]) {
+                offset += extra_bits as u32;
+            }
+        }
+
+        let length = 2;
+
+        // Update old offsets
+        for i in (1..4).rev() {
+            old_offsets[i] = old_offsets[i - 1];
+        }
+        old_offsets[0] = offset;
+
+        Ok(Some((offset, length)))
+    }
+
     fn parse_rar5_codes(&self, bit_reader: &mut RarBitReader) -> std::io::Result<bool> {
         // Simplified RAR5 code parsing based on unarr
 
