@@ -346,7 +346,7 @@ fn test_get_directonary() {
 }
 
 /// Compression Flags
-#[derive(PartialEq, Debug, Clone, Default)]
+#[derive(PartialEq, Debug, Clone, Copy, Default)]
 pub enum CompressionFlags {
     Save,
     Fastest,

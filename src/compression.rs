@@ -49,11 +49,9 @@ pub struct CompressionReader {
 
 impl CompressionReader {
     pub fn new<R: Read + 'static>(reader: R, compression: &Compression) -> Result<Self> {
-        let method = compression.flag.clone();
-        
-        match method {
+        match compression.flag {
             CompressionFlags::Unknown => Err(RarError::UnsupportedCompression),
-            _ => Ok(Self {
+            method => Ok(Self {
                 inner: Box::new(reader),
                 method,
                 buffer: Vec::new(),
@@ -167,7 +165,7 @@ impl HuffmanCode {
         self.tree[node].branches[0] == self.tree[node].branches[1]
     }
 
-    fn decode_symbol(&self, bit_reader: &mut RarBitReader) -> Option<i32> {
+    fn decode_symbol(&self, bit_reader: &mut RarBitReader<'_>) -> Option<i32> {
         if self.tree.is_empty() {
             return None;
         }
@@ -219,16 +217,16 @@ impl PpmDecoder {
 }
 
 // RAR-specific bit reader based on unarr implementation
-struct RarBitReader {
-    data: Vec<u8>,
+struct RarBitReader<'a> {
+    data: &'a [u8],
     pos: usize,
     bits: u64,      // 64-bit buffer for bits
     available: i32, // Number of bits available in buffer
     at_eof: bool,
 }
 
-impl RarBitReader {
-    fn new(data: Vec<u8>) -> Self {
+impl<'a> RarBitReader<'a> {
+    fn new(data: &'a [u8]) -> Self {
         Self {
             data,
             pos: 0,
@@ -350,7 +348,7 @@ impl CompressionReader {
     }
 
     fn rar_decompress_with_ppm(&self, compressed: &[u8]) -> std::io::Result<Vec<u8>> {
-        let mut bit_reader = RarBitReader::new(compressed.to_vec());
+        let mut bit_reader = RarBitReader::new(compressed);
         let mut output = Vec::new();
         let mut lzss = LzssWindow::new(4096);
         let mut ppm = PpmDecoder::new();
@@ -378,7 +376,7 @@ impl CompressionReader {
 
     fn huffman_lzss_decompress(
         &self,
-        bit_reader: &mut RarBitReader,
+        bit_reader: &mut RarBitReader<'_>,
         output: &mut Vec<u8>,
         lzss: &mut LzssWindow,
     ) -> std::io::Result<()> {
@@ -557,7 +555,7 @@ impl CompressionReader {
         Ok(())
     }
 
-    fn handle_end_of_block(&self, bit_reader: &mut RarBitReader) -> std::io::Result<bool> {
+    fn handle_end_of_block(&self, bit_reader: &mut RarBitReader<'_>) -> std::io::Result<bool> {
         if let Some(continue_bit) = bit_reader.read_bit() {
             if !continue_bit {
                 if let Some(new_table) = bit_reader.read_bit() {
@@ -577,7 +575,7 @@ impl CompressionReader {
     fn decode_old_offset_match(
         &self,
         symbol: i32,
-        bit_reader: &mut RarBitReader,
+        bit_reader: &mut RarBitReader<'_>,
         length_code: &mut HuffmanCode,
         old_offsets: &mut [u32; 4],
     ) -> std::io::Result<Option<(u32, u32)>> {
@@ -616,7 +614,7 @@ impl CompressionReader {
     fn decode_short_match(
         &self,
         symbol: i32,
-        bit_reader: &mut RarBitReader,
+        bit_reader: &mut RarBitReader<'_>,
         old_offsets: &mut [u32; 4],
     ) -> std::io::Result<Option<(u32, u32)>> {
         let idx = (symbol - 263) as usize;
@@ -642,7 +640,7 @@ impl CompressionReader {
         Ok(Some((offset, length)))
     }
 
-    fn parse_rar5_codes(&self, bit_reader: &mut RarBitReader) -> std::io::Result<bool> {
+    fn parse_rar5_codes(&self, bit_reader: &mut RarBitReader<'_>) -> std::io::Result<bool> {
         // Simplified RAR5 code parsing based on unarr
 
         // Check if we should reset length table
