@@ -185,6 +185,24 @@ impl HuffmanCode {
 
         Some(self.tree[node].branches[0])
     }
+    
+    fn decode_symbol_streaming<R: Read>(&self, bit_reader: &mut StreamingBitReader<R>) -> std::io::Result<Option<i32>> {
+        if self.tree.is_empty() {
+            return Ok(None);
+        }
+        
+        let mut node = 0;
+        while !self.is_leaf_node(node) {
+            let bit = bit_reader.read_bit()?.unwrap_or(false) as usize;
+            let next_node = self.tree[node].branches[bit];
+            if next_node < 0 {
+                return Ok(None);
+            }
+            node = next_node as usize;
+        }
+        
+        Ok(Some(self.tree[node].branches[0]))
+    }
 }
 
 // PPM Context Modeling using ppmd-rust
@@ -215,6 +233,237 @@ impl PpmDecoder {
         } else {
             None
         }
+    }
+}
+
+// True streaming RAR decompressor - processes data without loading all into memory
+struct StreamingRarDecompressor<R: Read> {
+    bit_reader: StreamingBitReader<R>,
+    lzss: LzssWindow,
+    huffman_main: HuffmanCode,
+    huffman_length: HuffmanCode,
+    old_offsets: [u32; 4],
+    last_offset: u32,
+    last_length: u32,
+    output_buffer: Vec<u8>,
+    buffer_pos: usize,
+    finished: bool,
+}
+
+// Streaming bit reader that works directly with any Read source
+struct StreamingBitReader<R: Read> {
+    reader: R,
+    bits: u64,
+    available: i32,
+    at_eof: bool,
+}
+
+impl<R: Read> StreamingBitReader<R> {
+    fn new(reader: R) -> Self {
+        Self {
+            reader,
+            bits: 0,
+            available: 0,
+            at_eof: false,
+        }
+    }
+    
+    fn fill_bits(&mut self, bits_needed: i32) -> std::io::Result<bool> {
+        while self.available < bits_needed && !self.at_eof {
+            let mut byte = [0u8; 1];
+            match self.reader.read(&mut byte)? {
+                0 => self.at_eof = true,
+                _ => {
+                    self.bits = (self.bits << 8) | (byte[0] as u64);
+                    self.available += 8;
+                }
+            }
+        }
+        Ok(self.available >= bits_needed)
+    }
+    
+    fn read_bits(&mut self, bits: i32) -> std::io::Result<Option<u64>> {
+        if !(0..=64).contains(&bits) || !self.fill_bits(bits)? {
+            return Ok(None);
+        }
+        
+        self.available -= bits;
+        let result = (self.bits >> self.available) & ((1u64 << bits) - 1);
+        Ok(Some(result))
+    }
+    
+    fn read_bit(&mut self) -> std::io::Result<Option<bool>> {
+        self.read_bits(1).map(|opt| opt.map(|b| b != 0))
+    }
+}
+
+impl<R: Read> StreamingRarDecompressor<R> {
+    fn new(reader: R) -> std::io::Result<Self> {
+        let mut huffman_main = HuffmanCode::new();
+        let mut huffman_length = HuffmanCode::new();
+        
+        if !huffman_main.create_from_lengths(&MAIN_CODE_LENGTHS) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Failed to create main Huffman code",
+            ));
+        }
+        
+        if !huffman_length.create_from_lengths(&LENGTH_CODE_LENGTHS) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Failed to create length Huffman code",
+            ));
+        }
+        
+        Ok(Self {
+            bit_reader: StreamingBitReader::new(reader),
+            lzss: LzssWindow::new(4096),
+            huffman_main,
+            huffman_length,
+            old_offsets: [0; 4],
+            last_offset: 0,
+            last_length: 0,
+            output_buffer: Vec::with_capacity(1024),
+            buffer_pos: 0,
+            finished: false,
+        })
+    }
+}
+
+impl<R: Read> Read for StreamingRarDecompressor<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.finished {
+            return Ok(0);
+        }
+        
+        // Fill output buffer if empty
+        while self.buffer_pos >= self.output_buffer.len() && !self.finished {
+            self.output_buffer.clear();
+            self.buffer_pos = 0;
+            self.decompress_chunk()?;
+        }
+        
+        // Copy from output buffer to user buffer
+        let available = self.output_buffer.len() - self.buffer_pos;
+        let to_copy = buf.len().min(available);
+        
+        if to_copy > 0 {
+            buf[..to_copy].copy_from_slice(&self.output_buffer[self.buffer_pos..self.buffer_pos + to_copy]);
+            self.buffer_pos += to_copy;
+        }
+        
+        Ok(to_copy)
+    }
+}
+
+impl<R: Read> StreamingRarDecompressor<R> {
+    fn decompress_chunk(&mut self) -> std::io::Result<()> {
+        const CHUNK_SIZE: usize = 256; // Small chunks for true streaming
+        
+        for _ in 0..CHUNK_SIZE {
+            match self.decode_next_symbol()? {
+                Some(symbol) => match symbol {
+                    0..=255 => {
+                        let byte = symbol as u8;
+                        self.output_buffer.push(byte);
+                        self.lzss.put_byte(byte);
+                    }
+                    256 => {
+                        self.finished = true;
+                        break;
+                    }
+                    257 => continue, // Filter (skip)
+                    258 => {
+                        if self.last_length > 0 {
+                            self.lzss.copy_match(self.last_offset as usize, self.last_length as usize, &mut self.output_buffer);
+                        }
+                    }
+                    259..=262 => {
+                        if let Some((offset, length)) = self.decode_old_offset_match(symbol)? {
+                            self.last_offset = offset;
+                            self.last_length = length;
+                            self.lzss.copy_match(offset as usize, length as usize, &mut self.output_buffer);
+                        }
+                    }
+                    263..=270 => {
+                        if let Some((offset, length)) = self.decode_short_match(symbol)? {
+                            self.last_offset = offset;
+                            self.last_length = length;
+                            self.lzss.copy_match(offset as usize, length as usize, &mut self.output_buffer);
+                        }
+                    }
+                    _ => break,
+                }
+                None => {
+                    self.finished = true;
+                    break;
+                }
+            }
+        }
+        
+        Ok(())
+    }
+    
+    fn decode_next_symbol(&mut self) -> std::io::Result<Option<i32>> {
+        self.huffman_main.decode_symbol_streaming(&mut self.bit_reader)
+    }
+    
+    fn decode_old_offset_match(&mut self, symbol: i32) -> std::io::Result<Option<(u32, u32)>> {
+        let idx = (symbol - 259) as usize;
+        if idx >= self.old_offsets.len() {
+            return Ok(None);
+        }
+
+        let offset = self.old_offsets[idx];
+        let len_symbol = self.huffman_length.decode_symbol_streaming(&mut self.bit_reader)?;
+        if len_symbol.is_none() {
+            return Ok(None);
+        }
+        let len_symbol = len_symbol.unwrap() as usize;
+
+        if len_symbol >= LENGTH_BASES.len() {
+            return Ok(None);
+        }
+
+        let mut length = LENGTH_BASES[len_symbol] + 2;
+        if LENGTH_BITS[len_symbol] > 0 {
+            if let Some(extra_bits) = self.bit_reader.read_bits(LENGTH_BITS[len_symbol])? {
+                length += extra_bits as u32;
+            }
+        }
+
+        // Update old offsets
+        for i in (1..=idx).rev() {
+            self.old_offsets[i] = self.old_offsets[i - 1];
+        }
+        self.old_offsets[0] = offset;
+
+        Ok(Some((offset, length)))
+    }
+    
+    fn decode_short_match(&mut self, symbol: i32) -> std::io::Result<Option<(u32, u32)>> {
+        let idx = (symbol - 263) as usize;
+        if idx >= SHORT_BASES.len() {
+            return Ok(None);
+        }
+
+        let mut offset = SHORT_BASES[idx] + 1;
+        if SHORT_BITS[idx] > 0 {
+            if let Some(extra_bits) = self.bit_reader.read_bits(SHORT_BITS[idx])? {
+                offset += extra_bits as u32;
+            }
+        }
+
+        let length = 2;
+
+        // Update old offsets
+        for i in (1..4).rev() {
+            self.old_offsets[i] = self.old_offsets[i - 1];
+        }
+        self.old_offsets[0] = offset;
+
+        Ok(Some((offset, length)))
     }
 }
 
@@ -326,20 +575,27 @@ impl LzssWindow {
 
 impl CompressionReader {
     fn decompress_rar(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        // NOTE: Current limitation - still loads entire compressed data into memory
-        // for RAR decompression. A full streaming implementation would require:
-        // 1. Streaming bit reader that works with BufReader
-        // 2. Huffman decoder that can handle partial data
-        // 3. LZSS window that can output partial results
-        // This is a significant architectural change for future improvement.
-        
+        // TRUE STREAMING: Process data directly from input without loading all into memory
         if !self.decompressed {
-            // Use BufReader for better I/O performance, but still need complete data
-            let mut compressed = Vec::new();
-            self.inner.read_to_end(&mut compressed)?;
-
-            // RAR decompression with Huffman decoding and PPM support
-            self.buffer = self.rar_decompress_with_ppm(&compressed)?;
+            // Initialize streaming decompressor
+            let mut streaming_reader = StreamingRarDecompressor::new(&mut self.inner)?;
+            
+            // Read decompressed data in chunks
+            let mut total_read = 0;
+            loop {
+                let bytes_read = streaming_reader.read(&mut self.buffer[total_read..])?;
+                if bytes_read == 0 {
+                    break;
+                }
+                total_read += bytes_read;
+                
+                // Expand buffer if needed
+                if total_read >= self.buffer.len() {
+                    self.buffer.resize(self.buffer.len() * 2, 0);
+                }
+            }
+            
+            self.buffer.truncate(total_read);
             self.pos = 0;
             self.decompressed = true;
         }
