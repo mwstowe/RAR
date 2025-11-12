@@ -1,11 +1,11 @@
 use crate::aes_reader::RarAesReader;
 use crate::compression::CompressionReader;
 use crate::error::{RarError, Result};
-use crate::file_block::{CompressionFlags, FileBlock};
+use crate::file_block::FileBlock;
 use crate::file_writer::FileWriter;
 use crate::rar_reader::RarReader;
 use crate::{archive_block::ArchiveBlock, sig_block::SignatureBlock, BUFFER_SIZE};
-use std::io::{Cursor, Read, Write};
+use std::io::{Read, Write};
 
 /// This function extracts the data from a RarReader and writes it into an file.
 pub fn extract(
@@ -22,44 +22,21 @@ pub fn extract(
     let reader = RarReader::new(reader.take(data_area_size));
 
     // Initialize the decryption reader
-    let mut aes_reader = RarAesReader::new(reader, file.clone(), password);
+    let aes_reader = RarAesReader::new(reader, file.clone(), password);
 
-    // For encrypted files, we need to handle compression streaming differently
-    // since we can't use the CompressionReader with borrowed data
-    match file.compression.flag {
-        CompressionFlags::Save => {
-            // No compression - stream directly from AES reader to file
-            let mut data_buffer = [0u8; BUFFER_SIZE];
-            loop {
-                let bytes_read = aes_reader.read(&mut data_buffer)?;
-                if bytes_read == 0 {
-                    break;
-                }
-                let bytes_written = f_writer.write(&data_buffer[..bytes_read])?;
-                if bytes_written == 0 {
-                    break; // File size limit reached
-                }
-            }
+    // Chain AES reader directly to compression reader for true streaming
+    let mut comp_reader = CompressionReader::new(aes_reader, &file.compression)?;
+
+    // Stream data directly from AES → compression → file
+    let mut data_buffer = [0u8; BUFFER_SIZE];
+    loop {
+        let bytes_read = comp_reader.read(&mut data_buffer)?;
+        if bytes_read == 0 {
+            break;
         }
-        _ => {
-            // Compressed data - we need to decompress after decryption
-            // For now, we'll need to buffer the decrypted data to pass to compression reader
-            // TODO: Implement true streaming compression that doesn't require 'static
-            let mut decrypted_data = Vec::new();
-            aes_reader.read_to_end(&mut decrypted_data)?;
-            
-            let mut comp_reader = CompressionReader::new(Cursor::new(decrypted_data), &file.compression)?;
-            let mut data_buffer = [0u8; BUFFER_SIZE];
-            loop {
-                let bytes_read = comp_reader.read(&mut data_buffer)?;
-                if bytes_read == 0 {
-                    break;
-                }
-                let bytes_written = f_writer.write(&data_buffer[..bytes_read])?;
-                if bytes_written == 0 {
-                    break; // File size limit reached
-                }
-            }
+        let bytes_written = f_writer.write(&data_buffer[..bytes_read])?;
+        if bytes_written == 0 {
+            break; // File size limit reached
         }
     }
 

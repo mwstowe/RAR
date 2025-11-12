@@ -69,20 +69,20 @@ impl LzssWindow {
     }
 }
 
-pub struct CompressionReader {
-    inner: BufReader<Box<dyn Read>>,
+pub struct CompressionReader<R: Read> {
+    inner: BufReader<R>,
     method: CompressionFlags,
     buffer: Vec<u8>,
     pos: usize,
     decompressed: bool,
 }
 
-impl CompressionReader {
-    pub fn new<R: Read + 'static>(reader: R, compression: &Compression) -> Result<Self> {
+impl<R: Read> CompressionReader<R> {
+    pub fn new(reader: R, compression: &Compression) -> Result<Self> {
         match compression.flag {
             CompressionFlags::Unknown => Err(RarError::UnsupportedCompression),
             method => Ok(Self {
-                inner: BufReader::with_capacity(8192, Box::new(reader)), // 8KB buffer
+                inner: BufReader::with_capacity(8192, reader), // 8KB buffer
                 method,
                 buffer: Vec::new(),
                 pos: 0,
@@ -92,7 +92,7 @@ impl CompressionReader {
     }
 }
 
-impl Read for CompressionReader {
+impl<R: Read> Read for CompressionReader<R> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         match self.method {
             CompressionFlags::Save => self.inner.read(buf),
@@ -101,7 +101,7 @@ impl Read for CompressionReader {
     }
 }
 
-impl CompressionReader {
+impl<R: Read> CompressionReader<R> {
     fn decompress_rar(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         // TRUE STREAMING: Process data directly from input without loading all into memory
         if !self.decompressed {
