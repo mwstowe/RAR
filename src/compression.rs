@@ -1,16 +1,15 @@
 use crate::error::{RarError, Result};
 use crate::file_block::{Compression, CompressionFlags};
-use std::io::{Read, BufReader};
+use std::io::{BufReader, Read};
 
 // RAR decompression constants based on unarr
 const LENGTH_BASES: [u32; 28] = [
-    0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 20,
-    24, 28, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 20, 24, 28, 32, 40, 48, 56, 64, 80, 96, 112, 128,
+    160, 192, 224,
 ];
 
 const LENGTH_BITS: [i32; 28] = [
-    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2,
-    2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5
+    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5,
 ];
 
 const SHORT_BASES: [u32; 8] = [0, 4, 8, 16, 32, 64, 128, 192];
@@ -20,7 +19,7 @@ const SHORT_BITS: [i32; 8] = [2, 2, 3, 4, 5, 6, 6, 6];
 const MAIN_CODE_LENGTHS: [u8; 271] = {
     let mut lengths = [8u8; 271];
     lengths[256] = 9; // End symbol
-    lengths[257] = 9; // Filter symbol  
+    lengths[257] = 9; // Filter symbol
     lengths[258] = 9; // Repeat symbol
     lengths[259] = 9; // Old offset 0
     lengths[260] = 9; // Old offset 1
@@ -45,7 +44,6 @@ pub struct CompressionReader {
     buffer: Vec<u8>,
     pos: usize,
     decompressed: bool,
-    chunk_size: usize,
 }
 
 impl CompressionReader {
@@ -58,8 +56,7 @@ impl CompressionReader {
                 buffer: Vec::new(),
                 pos: 0,
                 decompressed: false,
-                chunk_size: 0, // Not used in current implementation
-            })
+            }),
         }
     }
 }
@@ -185,12 +182,15 @@ impl HuffmanCode {
 
         Some(self.tree[node].branches[0])
     }
-    
-    fn decode_symbol_streaming<R: Read>(&self, bit_reader: &mut StreamingBitReader<R>) -> std::io::Result<Option<i32>> {
+
+    fn decode_symbol_streaming<R: Read>(
+        &self,
+        bit_reader: &mut StreamingBitReader<R>,
+    ) -> std::io::Result<Option<i32>> {
         if self.tree.is_empty() {
             return Ok(None);
         }
-        
+
         let mut node = 0;
         while !self.is_leaf_node(node) {
             let bit = bit_reader.read_bit()?.unwrap_or(false) as usize;
@@ -200,7 +200,7 @@ impl HuffmanCode {
             }
             node = next_node as usize;
         }
-        
+
         Ok(Some(self.tree[node].branches[0]))
     }
 }
@@ -267,7 +267,7 @@ impl<R: Read> StreamingBitReader<R> {
             at_eof: false,
         }
     }
-    
+
     fn fill_bits(&mut self, bits_needed: i32) -> std::io::Result<bool> {
         while self.available < bits_needed && !self.at_eof {
             let mut byte = [0u8; 1];
@@ -281,17 +281,17 @@ impl<R: Read> StreamingBitReader<R> {
         }
         Ok(self.available >= bits_needed)
     }
-    
+
     fn read_bits(&mut self, bits: i32) -> std::io::Result<Option<u64>> {
         if !(0..=64).contains(&bits) || !self.fill_bits(bits)? {
             return Ok(None);
         }
-        
+
         self.available -= bits;
         let result = (self.bits >> self.available) & ((1u64 << bits) - 1);
         Ok(Some(result))
     }
-    
+
     fn read_bit(&mut self) -> std::io::Result<Option<bool>> {
         self.read_bits(1).map(|opt| opt.map(|b| b != 0))
     }
@@ -301,21 +301,21 @@ impl<R: Read> StreamingRarDecompressor<R> {
     fn new(reader: R) -> std::io::Result<Self> {
         let mut huffman_main = HuffmanCode::new();
         let mut huffman_length = HuffmanCode::new();
-        
+
         if !huffman_main.create_from_lengths(&MAIN_CODE_LENGTHS) {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "Failed to create main Huffman code",
             ));
         }
-        
+
         if !huffman_length.create_from_lengths(&LENGTH_CODE_LENGTHS) {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "Failed to create length Huffman code",
             ));
         }
-        
+
         Ok(Self {
             bit_reader: StreamingBitReader::new(reader),
             lzss: LzssWindow::new(4096),
@@ -336,23 +336,24 @@ impl<R: Read> Read for StreamingRarDecompressor<R> {
         if self.finished {
             return Ok(0);
         }
-        
+
         // Fill output buffer if empty
         while self.buffer_pos >= self.output_buffer.len() && !self.finished {
             self.output_buffer.clear();
             self.buffer_pos = 0;
             self.decompress_chunk()?;
         }
-        
+
         // Copy from output buffer to user buffer
         let available = self.output_buffer.len() - self.buffer_pos;
         let to_copy = buf.len().min(available);
-        
+
         if to_copy > 0 {
-            buf[..to_copy].copy_from_slice(&self.output_buffer[self.buffer_pos..self.buffer_pos + to_copy]);
+            buf[..to_copy]
+                .copy_from_slice(&self.output_buffer[self.buffer_pos..self.buffer_pos + to_copy]);
             self.buffer_pos += to_copy;
         }
-        
+
         Ok(to_copy)
     }
 }
@@ -360,7 +361,7 @@ impl<R: Read> Read for StreamingRarDecompressor<R> {
 impl<R: Read> StreamingRarDecompressor<R> {
     fn decompress_chunk(&mut self) -> std::io::Result<()> {
         const CHUNK_SIZE: usize = 256; // Small chunks for true streaming
-        
+
         for _ in 0..CHUNK_SIZE {
             match self.decode_next_symbol()? {
                 Some(symbol) => match symbol {
@@ -376,39 +377,52 @@ impl<R: Read> StreamingRarDecompressor<R> {
                     257 => continue, // Filter (skip)
                     258 => {
                         if self.last_length > 0 {
-                            self.lzss.copy_match(self.last_offset as usize, self.last_length as usize, &mut self.output_buffer);
+                            self.lzss.copy_match(
+                                self.last_offset as usize,
+                                self.last_length as usize,
+                                &mut self.output_buffer,
+                            );
                         }
                     }
                     259..=262 => {
                         if let Some((offset, length)) = self.decode_old_offset_match(symbol)? {
                             self.last_offset = offset;
                             self.last_length = length;
-                            self.lzss.copy_match(offset as usize, length as usize, &mut self.output_buffer);
+                            self.lzss.copy_match(
+                                offset as usize,
+                                length as usize,
+                                &mut self.output_buffer,
+                            );
                         }
                     }
                     263..=270 => {
                         if let Some((offset, length)) = self.decode_short_match(symbol)? {
                             self.last_offset = offset;
                             self.last_length = length;
-                            self.lzss.copy_match(offset as usize, length as usize, &mut self.output_buffer);
+                            self.lzss.copy_match(
+                                offset as usize,
+                                length as usize,
+                                &mut self.output_buffer,
+                            );
                         }
                     }
                     _ => break,
-                }
+                },
                 None => {
                     self.finished = true;
                     break;
                 }
             }
         }
-        
+
         Ok(())
     }
-    
+
     fn decode_next_symbol(&mut self) -> std::io::Result<Option<i32>> {
-        self.huffman_main.decode_symbol_streaming(&mut self.bit_reader)
+        self.huffman_main
+            .decode_symbol_streaming(&mut self.bit_reader)
     }
-    
+
     fn decode_old_offset_match(&mut self, symbol: i32) -> std::io::Result<Option<(u32, u32)>> {
         let idx = (symbol - 259) as usize;
         if idx >= self.old_offsets.len() {
@@ -416,7 +430,9 @@ impl<R: Read> StreamingRarDecompressor<R> {
         }
 
         let offset = self.old_offsets[idx];
-        let len_symbol = self.huffman_length.decode_symbol_streaming(&mut self.bit_reader)?;
+        let len_symbol = self
+            .huffman_length
+            .decode_symbol_streaming(&mut self.bit_reader)?;
         if len_symbol.is_none() {
             return Ok(None);
         }
@@ -441,7 +457,7 @@ impl<R: Read> StreamingRarDecompressor<R> {
 
         Ok(Some((offset, length)))
     }
-    
+
     fn decode_short_match(&mut self, symbol: i32) -> std::io::Result<Option<(u32, u32)>> {
         let idx = (symbol - 263) as usize;
         if idx >= SHORT_BASES.len() {
@@ -579,7 +595,7 @@ impl CompressionReader {
         if !self.decompressed {
             // Initialize streaming decompressor
             let mut streaming_reader = StreamingRarDecompressor::new(&mut self.inner)?;
-            
+
             // Read decompressed data in chunks
             let mut total_read = 0;
             loop {
@@ -588,13 +604,13 @@ impl CompressionReader {
                     break;
                 }
                 total_read += bytes_read;
-                
+
                 // Expand buffer if needed
                 if total_read >= self.buffer.len() {
                     self.buffer.resize(self.buffer.len() * 2, 0);
                 }
             }
-            
+
             self.buffer.truncate(total_read);
             self.pos = 0;
             self.decompressed = true;
@@ -825,7 +841,7 @@ impl CompressionReader {
             if !continue_bit {
                 if let Some(new_table) = bit_reader.read_bit() {
                     if new_table {
-                        return Ok(self.parse_rar5_codes(bit_reader)?);
+                        return self.parse_rar5_codes(bit_reader);
                     }
                 }
                 return Ok(false);

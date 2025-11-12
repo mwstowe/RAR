@@ -133,8 +133,10 @@ fn test_archive() {
         dictonary: 0,
     };
 
-    let mut file_flag = FileFlags::default();
-    file_flag.crc = true;
+    let file_flag = FileFlags {
+        crc: true,
+        ..Default::default()
+    };
 
     let eab = ExtraAreaBlock {
         file_time: Some(FileTimeBlock {
@@ -187,8 +189,10 @@ fn test_archive_png() {
         dictonary: 0,
     };
 
-    let mut file_flag = FileFlags::default();
-    file_flag.crc = true;
+    let file_flag = FileFlags {
+        crc: true,
+        ..Default::default()
+    };
 
     let eab = ExtraAreaBlock {
         file_time: Some(FileTimeBlock {
