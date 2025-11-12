@@ -4,7 +4,7 @@ use crate::error::{RarError, Result};
 use crate::file_block::FileBlock;
 use crate::file_writer::FileWriter;
 use crate::rar_reader::RarReader;
-use crate::{archive_block::ArchiveBlock, sig_block::SignatureBlock, BUFFER_SIZE};
+use crate::{archive_block::ArchiveBlock, sig_block::SignatureBlock};
 use std::io::{Read, Write};
 
 /// This function extracts the data from a RarReader and writes it into an file.
@@ -27,20 +27,20 @@ pub fn extract(
     // Chain AES reader directly to compression reader for true streaming
     let mut comp_reader = CompressionReader::new(aes_reader, &file.compression)?;
 
-    // Stream data directly from AES → compression → file
-    let mut data_buffer = [0u8; BUFFER_SIZE];
+    // Stream with proper size limit handling
+    let mut buffer = [0u8; 8192];
     loop {
-        let bytes_read = comp_reader.read(&mut data_buffer)?;
+        let bytes_read = comp_reader.read(&mut buffer)?;
         if bytes_read == 0 {
             break;
         }
-        let bytes_written = f_writer.write(&data_buffer[..bytes_read])?;
+        
+        let bytes_written = f_writer.write(&buffer[..bytes_read])?;
         if bytes_written == 0 {
             break; // File size limit reached
         }
     }
 
-    // flush the file writer
     f_writer.flush()?;
 
     Ok(())

@@ -70,11 +70,9 @@ impl LzssWindow {
 }
 
 pub struct CompressionReader<R: Read> {
-    inner: BufReader<R>,
+    inner: Option<BufReader<R>>,
+    streaming_decompressor: Option<StreamingRarDecompressor<BufReader<R>>>,
     method: CompressionFlags,
-    buffer: Vec<u8>,
-    pos: usize,
-    decompressed: bool,
 }
 
 impl<R: Read> CompressionReader<R> {
@@ -82,11 +80,9 @@ impl<R: Read> CompressionReader<R> {
         match compression.flag {
             CompressionFlags::Unknown => Err(RarError::UnsupportedCompression),
             method => Ok(Self {
-                inner: BufReader::with_capacity(8192, reader), // 8KB buffer
+                inner: Some(BufReader::with_capacity(8192, reader)),
+                streaming_decompressor: None,
                 method,
-                buffer: Vec::new(),
-                pos: 0,
-                decompressed: false,
             }),
         }
     }
@@ -95,49 +91,29 @@ impl<R: Read> CompressionReader<R> {
 impl<R: Read> Read for CompressionReader<R> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         match self.method {
-            CompressionFlags::Save => self.inner.read(buf),
-            _ => self.decompress_rar(buf),
-        }
-    }
-}
-
-impl<R: Read> CompressionReader<R> {
-    fn decompress_rar(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        // TRUE STREAMING: Process data directly from input without loading all into memory
-        if !self.decompressed {
-            // Initialize streaming decompressor
-            let mut streaming_reader = StreamingRarDecompressor::new(&mut self.inner)?;
-
-            // Read decompressed data in chunks
-            let mut total_read = 0;
-            loop {
-                let bytes_read = streaming_reader.read(&mut self.buffer[total_read..])?;
-                if bytes_read == 0 {
-                    break;
-                }
-                total_read += bytes_read;
-
-                // Expand buffer if needed
-                if total_read >= self.buffer.len() {
-                    self.buffer.resize(self.buffer.len() * 2, 0);
-                }
+            CompressionFlags::Save => {
+                // Direct passthrough for uncompressed data
+                self.inner
+                    .as_mut()
+                    .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Reader already consumed"))?
+                    .read(buf)
             }
-
-            self.buffer.truncate(total_read);
-            self.pos = 0;
-            self.decompressed = true;
+            _ => {
+                // Initialize streaming decompressor on first use
+                if self.streaming_decompressor.is_none() {
+                    let reader = self.inner
+                        .take()
+                        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Reader already consumed"))?;
+                    self.streaming_decompressor = Some(StreamingRarDecompressor::new(reader)?);
+                }
+                
+                // Read from streaming decompressor
+                self.streaming_decompressor
+                    .as_mut()
+                    .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Decompressor not initialized"))?
+                    .read(buf)
+            }
         }
-
-        // Copy decompressed data to output buffer
-        let available = self.buffer.len() - self.pos;
-        let to_copy = buf.len().min(available);
-
-        if to_copy > 0 {
-            buf[..to_copy].copy_from_slice(&self.buffer[self.pos..self.pos + to_copy]);
-            self.pos += to_copy;
-        }
-
-        Ok(to_copy)
     }
 }
 
