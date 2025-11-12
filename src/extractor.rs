@@ -34,7 +34,7 @@ pub fn extract(
         if bytes_read == 0 {
             break;
         }
-        
+
         let bytes_written = f_writer.write(&buffer[..bytes_read])?;
         if bytes_written == 0 {
             break; // File size limit reached

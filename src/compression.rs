@@ -95,22 +95,35 @@ impl<R: Read> Read for CompressionReader<R> {
                 // Direct passthrough for uncompressed data
                 self.inner
                     .as_mut()
-                    .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Reader already consumed"))?
+                    .ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "Reader already consumed",
+                        )
+                    })?
                     .read(buf)
             }
             _ => {
                 // Initialize streaming decompressor on first use
                 if self.streaming_decompressor.is_none() {
-                    let reader = self.inner
-                        .take()
-                        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Reader already consumed"))?;
+                    let reader = self.inner.take().ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "Reader already consumed",
+                        )
+                    })?;
                     self.streaming_decompressor = Some(StreamingRarDecompressor::new(reader)?);
                 }
-                
+
                 // Read from streaming decompressor
                 self.streaming_decompressor
                     .as_mut()
-                    .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Decompressor not initialized"))?
+                    .ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "Decompressor not initialized",
+                        )
+                    })?
                     .read(buf)
             }
         }
