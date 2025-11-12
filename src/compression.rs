@@ -107,7 +107,7 @@ impl CompressionReader {
         if !self.decompressed {
             // Initialize streaming decompressor
             let mut streaming_reader = StreamingRarDecompressor::new(&mut self.inner)?;
-            
+
             // Read decompressed data in chunks
             let mut total_read = 0;
             loop {
@@ -116,13 +116,13 @@ impl CompressionReader {
                     break;
                 }
                 total_read += bytes_read;
-                
+
                 // Expand buffer if needed
                 if total_read >= self.buffer.len() {
                     self.buffer.resize(self.buffer.len() * 2, 0);
                 }
             }
-            
+
             self.buffer.truncate(total_read);
             self.pos = 0;
             self.decompressed = true;
