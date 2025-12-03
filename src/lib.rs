@@ -114,9 +114,9 @@ impl Archive {
 
     /// Parse RAR archive from memory buffer (similar to zip::ZipArchive::new)
     /// This enables in-memory parsing without requiring temporary files
-    pub fn from_bytes(data: &[u8], password: &str) -> Result<Archive> {
+    pub fn from_bytes(data: &[u8], _password: &str) -> Result<Archive> {
         use std::io::Cursor;
-        
+
         let cursor = Cursor::new(data);
         let mut reader = RarReader::new(cursor);
 
@@ -124,7 +124,7 @@ impl Archive {
         let version = reader
             .exec_nom_parser(sig_block::SignatureBlock::parse)
             .map_err(|_| RarError::InvalidSignature)?;
-            
+
         // Parse the archive information
         let details = reader
             .exec_nom_parser(archive_block::ArchiveBlock::parse)
@@ -132,7 +132,7 @@ impl Archive {
 
         let mut files = vec![];
         let mut quick_open = None;
-        
+
         // Parse file blocks (metadata only, no extraction)
         while let Ok(f) = reader.exec_nom_parser(file_block::FileBlock::parse) {
             // Handle quick open file
@@ -144,7 +144,7 @@ impl Archive {
 
             // Skip data area for metadata-only parsing
             reader.r_seek(f.head.data_area_size)?;
-            
+
             // Add file metadata to list
             files.push(f);
         }
