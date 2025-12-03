@@ -26,8 +26,6 @@ mod sig_block;
 mod util;
 mod vint;
 
-const BUFFER_SIZE: usize = 8192;
-
 use crate::error::{RarError, Result};
 use rar_reader::RarReader;
 use std::fs::File;

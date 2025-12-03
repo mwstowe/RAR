@@ -17,8 +17,9 @@ let archive = rar::Archive::extract_all(
 println!("Result: {:?}", archive);
 ```
 
-## Version 0.5.0
+## Version 0.5.1
 This version includes:
+- **Code quality improvements** with clippy warnings fixed and proper formatting
 - **Complete RAR compression support** for all compression levels (FASTEST through BEST)
 - **RAR-specific bit stream format** with 64-bit buffered reading based on unarr
 - **Complete Huffman decoding** with tree construction and symbol decoding

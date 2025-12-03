@@ -7,6 +7,7 @@ use pbkdf2::pbkdf2;
 use sha2::Sha256;
 use std::io::{Read, Result, Seek, SeekFrom};
 
+#[allow(deprecated)]
 use crate::extra_block::FileEncryptionBlock;
 use crate::file_block::FileBlock;
 
@@ -52,6 +53,7 @@ impl<R: Read> RarAesReader<R> {
 }
 
 impl<R: Read> Read for RarAesReader<R> {
+    #[allow(deprecated)]
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         if !self.active {
             return self.reader.read(buf);
