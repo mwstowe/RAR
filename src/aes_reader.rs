@@ -1,5 +1,5 @@
 use aes::Aes256;
-use cbc::cipher::{BlockModeDecrypt, KeyIvInit, block_padding::NoPadding};
+use cbc::cipher::{block_padding::NoPadding, BlockModeDecrypt, KeyIvInit};
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
 use sha2::Sha256;
@@ -79,9 +79,8 @@ impl<R: Read> Read for RarAesReader<R> {
 
             // Save last ciphertext block as next IV for CBC chaining
             let mut next_iv = [0u8; 16];
-            next_iv.copy_from_slice(
-                &self.encrypted_buffer[blocks_to_decrypt - 16..blocks_to_decrypt],
-            );
+            next_iv
+                .copy_from_slice(&self.encrypted_buffer[blocks_to_decrypt - 16..blocks_to_decrypt]);
 
             let mut data = self.encrypted_buffer[..blocks_to_decrypt].to_vec();
             let dec = Aes256CbcDec::new(&self.key.into(), &self.iv.into());
